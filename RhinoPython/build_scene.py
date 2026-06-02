@@ -52,7 +52,12 @@ def main() -> None:
         params.curtain_count, params.curtain_spacing, x_center
     )
     display.render_curtain_planes(plane_xs, params.curtain_width, params.curtain_height)
-    display.render_pointclouds(curtains)
+    if params.display_mode == "pointcloud":
+        display.render_pointclouds(curtains)
+    elif params.display_mode == "instances":
+        display.render_instances(curtains, params.bead_diameter, params.instance_sphere_subd)
+    else:
+        raise ValueError(f"Unknown display_mode: {params.display_mode!r}")
     print(f"Rendered ({params.display_mode}). Look at the viewport.")
 
 

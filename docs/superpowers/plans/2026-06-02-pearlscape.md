@@ -1267,21 +1267,32 @@ Append the following to `RhinoPython/pearlscape/display.py`:
 
 ```python
 def _build_bead_block_definition(diameter: float, subd: int, name: str = "PearlscapeBead") -> int:
-    """Ensure a block definition for a unit bead mesh exists; return its index."""
+    """Ensure a block definition for a unit bead mesh exists; return its index.
+
+    The block name encodes (diameter, subd) so that changing either param
+    in `params.py` produces a new block rather than silently reusing the
+    cached one in the Rhino document.
+    """
     doc = sc.doc
-    existing = doc.InstanceDefinitions.Find(name, True)
+    full_name = f"{name}_d{diameter}_s{subd}"
+    existing = doc.InstanceDefinitions.Find(full_name, True)
     if existing is not None:
         return existing.Index
     radius = diameter / 2.0
     sphere = rg.Sphere(rg.Point3d.Origin, radius)
-    mesh = rg.Mesh.CreateFromSphere(sphere, max(6, 2 ** (subd + 1)), max(6, 2 ** (subd + 1)))
-    # CreateFromSphere uses (count_around, count_vertical) — pass enough to give a smooth bead.
+    # CreateFromSphere takes (count_around, count_vertical). subd controls density.
+    count = max(6, 2 ** (subd + 1))
+    mesh = rg.Mesh.CreateFromSphere(sphere, count, count)
+    # The mesh inside the block must defer to the InstanceReference's color
+    # for per-bead colour overrides to render.
+    mesh_attrs = Rhino.DocObjects.ObjectAttributes()
+    mesh_attrs.ColorSource = Rhino.DocObjects.ObjectColorSource.ColorFromParent
     idx = doc.InstanceDefinitions.Add(
-        name,
+        full_name,
         "Pearlscape bead",
         rg.Point3d.Origin,
         [mesh],
-        [Rhino.DocObjects.ObjectAttributes()],
+        [mesh_attrs],
     )
     return idx
 

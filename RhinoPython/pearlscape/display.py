@@ -134,3 +134,64 @@ def render_curtain_planes(
         attrs.LayerIndex = layer_idx
         doc.Objects.AddPolyline(polyline, attrs)
     sc.doc.Views.Redraw()
+
+
+def _build_bead_block_definition(diameter: float, subd: int, name: str = "PearlscapeBead") -> int:
+    """Ensure a block definition for a unit bead mesh exists; return its index.
+
+    The block name encodes (diameter, subd) so that changing either param
+    in `params.py` produces a new block rather than silently reusing the
+    cached one in the Rhino document.
+    """
+    doc = sc.doc
+    full_name = f"{name}_d{diameter}_s{subd}"
+    existing = doc.InstanceDefinitions.Find(full_name, True)
+    if existing is not None:
+        return existing.Index
+    radius = diameter / 2.0
+    sphere = rg.Sphere(rg.Point3d.Origin, radius)
+    # CreateFromSphere takes (count_around, count_vertical). subd controls density.
+    count = max(6, 2 ** (subd + 1))
+    mesh = rg.Mesh.CreateFromSphere(sphere, count, count)
+    # The mesh inside the block must defer to the InstanceReference's color
+    # for per-bead colour overrides to render.
+    mesh_attrs = Rhino.DocObjects.ObjectAttributes()
+    mesh_attrs.ColorSource = Rhino.DocObjects.ObjectColorSource.ColorFromParent
+    idx = doc.InstanceDefinitions.Add(
+        full_name,
+        "Pearlscape bead",
+        rg.Point3d.Origin,
+        [mesh],
+        [mesh_attrs],
+    )
+    return idx
+
+
+def render_instances(curtains: Sequence[dict], diameter: float, subd: int) -> None:
+    """Render each bead as an InstanceReference to a shared bead mesh block.
+
+    Per-instance color is set via ObjectAttributes (ColorSource = ColorFromObject).
+    """
+    doc = sc.doc
+    block_idx = _build_bead_block_definition(diameter, subd)
+
+    for i, c in enumerate(curtains):
+        layer_path = f"{PEARLSCAPE_PARENT_LAYER}::{CURTAINS_LAYER}::Curtain_{i:02d}"
+        layer_idx = _ensure_layer(layer_path)
+        plane_x = c["plane_x"]
+        pts_2d = c["points_2d"]
+        colors = c.get("colors")
+        for j in range(pts_2d.shape[0]):
+            t = rg.Transform.Translation(
+                plane_x, float(pts_2d[j, 0]), float(pts_2d[j, 1])
+            )
+            attrs = Rhino.DocObjects.ObjectAttributes()
+            attrs.LayerIndex = layer_idx
+            if colors is not None:
+                rgb = colors[j]
+                attrs.ColorSource = Rhino.DocObjects.ObjectColorSource.ColorFromObject
+                attrs.ObjectColor = sd.Color.FromArgb(
+                    int(rgb[0]), int(rgb[1]), int(rgb[2])
+                )
+            doc.Objects.AddInstanceObject(block_idx, t, attrs)
+    sc.doc.Views.Redraw()
