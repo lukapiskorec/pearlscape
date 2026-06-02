@@ -18,6 +18,15 @@
 - **No automated tests.** Each task has a "Manual verification" step that the user runs in Rhino.
 - **Running scripts in Rhino 8:** open the Script Editor (`_ScriptEditor` command), open the script file, press F5. The first lines of `build_scene.py` add the package directory to `sys.path` so `import pearlscape` resolves.
 - **Python 3 runtime directive (required):** Rhino 8's Script Editor defaults to IronPython 2 for `.py` files. Every script that the user runs directly with F5 (entry points and modules with `__main__` smoke tests) must begin with `#! python 3` on the first line. Modules that are only imported do not need it. Files needing the directive: `build_scene.py`, `noise.py`, `sampling.py`, `cave.py`. Files that don't (no `__main__` block run directly): `__init__.py`, `params.py`, `curtains.py`*, `color.py`*, `display.py`, `export.py`. (*these have `__main__` blocks for developer testing but are not part of the user verification flow.)
+- **Dual-mode imports for F5-runnable modules:** any module that has both internal package imports AND a user-facing F5 smoke test must use absolute imports (`from pearlscape.foo import bar`) preceded by a sys.path setup, NOT relative imports (`from .foo import bar`). Relative imports require a package context that doesn't exist when Rhino loads the file as `__main__`. The pattern is:
+  ```python
+  import os, sys
+  _PKG_PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+  if _PKG_PARENT not in sys.path:
+      sys.path.insert(0, _PKG_PARENT)
+  from pearlscape.noise import fbm3_01, make_perm
+  ```
+  Applies to: `cave.py` (Task 4). Other module-level imports inside the `pearlscape/` package that don't need F5-direct-run (`curtains.py`, `color.py`, `display.py`, `export.py`) can keep relative imports.
 - **Numpy availability:** Rhino 8 SR23's CPython runtime ships with numpy preinstalled. No extra install needed.
 - **Commits:** The user handles all commits. Implementer steps should stop at code-written state. The plan's "Commit" steps are user actions, not subagent actions.
 
@@ -525,12 +534,21 @@ fbm_amplitude < cave_radius.
 """
 
 import math
+import os
+import sys
 from typing import Protocol
 
 import numpy as np
 
-from .noise import fbm3_01, make_perm
-from .sampling import bridson_torus, estimate_radius_for_count
+# Make sibling-package imports resolve when this file is F5-run directly
+# (Rhino loads it as __main__, with no parent package context). When imported
+# normally as `pearlscape.cave`, this sys.path adjustment is a no-op.
+_PKG_PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PKG_PARENT not in sys.path:
+    sys.path.insert(0, _PKG_PARENT)
+
+from pearlscape.noise import fbm3_01, make_perm
+from pearlscape.sampling import bridson_torus, estimate_radius_for_count
 
 
 class CaveSurface(Protocol):
@@ -640,7 +658,7 @@ def make_default_cave(params) -> CylinderFBMCave:
 
 
 if __name__ == "__main__":
-    from .params import PearlscapeParams
+    from pearlscape.params import PearlscapeParams
     p = PearlscapeParams()
     cave = make_default_cave(p)
     import time
