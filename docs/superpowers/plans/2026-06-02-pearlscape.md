@@ -119,6 +119,7 @@ class PearlscapeParams:
 
 ```python
 #! python 3
+# r: numpy
 """Top-level entry point. Run this from Rhino's Script Editor (F5)."""
 
 import os
@@ -190,6 +191,7 @@ git commit -m "feat: scaffold pearlscape package and parameters"
 
 ```python
 #! python 3
+# r: numpy
 """Perlin noise and FBM, numpy-vectorized. 3D inputs / 1D outputs."""
 
 import numpy as np
@@ -305,14 +307,18 @@ def fbm3_01(
 
 
 if __name__ == "__main__":
-    # Smoke test: print a small 3x3x1 sample grid.
+    # Smoke test: sample at non-integer coordinates (Perlin is zero at integer
+    # lattice corners, so a 0..2 integer grid would produce all 0.5s).
     perm = make_perm(seed=1)
-    grid_x, grid_y = np.meshgrid(np.linspace(0, 2, 3), np.linspace(0, 2, 3))
+    xs = np.linspace(0.25, 1.75, 3)
+    ys = np.linspace(0.25, 1.75, 3)
+    grid_x, grid_y = np.meshgrid(xs, ys)
     pts = np.column_stack([grid_x.ravel(), grid_y.ravel(), np.zeros(9)])
     vals = fbm3_01(pts, perm, octaves=4, lacunarity=2.0, gain=0.5)
     print("Perlin/FBM smoke test (3x3 grid at z=0):")
     print(vals.reshape(3, 3).round(3))
-    # Determinism check
+    print(f"Min/max: {vals.min():.3f} / {vals.max():.3f}  "
+          f"(varies: {bool(vals.max() - vals.min() > 0.01)})")
     vals2 = fbm3_01(pts, perm, octaves=4, lacunarity=2.0, gain=0.5)
     print("Deterministic:", bool(np.allclose(vals, vals2)))
 ```
@@ -350,6 +356,7 @@ git commit -m "feat: add numpy Perlin + FBM noise"
 
 ```python
 #! python 3
+# r: numpy
 """Blue-noise (Poisson-disk) sampling in a 2D domain with one wrapped axis.
 
 We sample in (theta_arc, x), where theta_arc = theta * cave_radius is in meters.
@@ -507,6 +514,7 @@ git commit -m "feat: add Bridson Poisson-disk sampling with theta wrap"
 
 ```python
 #! python 3
+# r: numpy
 """Cave surface generation.
 
 `CaveSurface` is the seam where future geometries (Lidar, subdivision)
@@ -794,6 +802,7 @@ Replace the entire contents of `build_scene.py` with:
 
 ```python
 #! python 3
+# r: numpy
 """Top-level entry point. Run this from Rhino's Script Editor (F5)."""
 
 import os
@@ -969,6 +978,7 @@ Replace the entire contents of `build_scene.py` with:
 
 ```python
 #! python 3
+# r: numpy
 """Top-level entry point. Run this from Rhino's Script Editor (F5)."""
 
 import os
@@ -1168,6 +1178,7 @@ For clarity, here is the full intended `build_scene.py` after this edit:
 
 ```python
 #! python 3
+# r: numpy
 """Top-level entry point. Run this from Rhino's Script Editor (F5)."""
 
 import os
@@ -1530,6 +1541,7 @@ For clarity, the full intended `build_scene.py` after this edit is:
 
 ```python
 #! python 3
+# r: numpy
 """Top-level entry point. Run this from Rhino's Script Editor (F5)."""
 
 import os
