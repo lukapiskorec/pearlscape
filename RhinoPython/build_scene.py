@@ -19,6 +19,7 @@ import time
 
 from pearlscape import PearlscapeParams
 from pearlscape.cave import make_default_cave
+from pearlscape.curtains import array_x_center, curtain_x_positions, slice_and_project
 from pearlscape import display
 
 
@@ -29,10 +30,25 @@ def main() -> None:
     t0 = time.time()
     cave = make_default_cave(params)
     pts = cave.sample_surface_points()
-    print(f"Generated {len(pts)} cave surface points in {time.time()-t0:.2f}s")
+    print(f"Cave: {len(pts)} surface points in {time.time()-t0:.2f}s")
 
-    display.render_cave_reference(pts)
-    print("Rendered cave reference. Look at the viewport.")
+    t0 = time.time()
+    x_center = array_x_center(params.cave_length)
+    curtains = slice_and_project(
+        pts,
+        curtain_count=params.curtain_count,
+        curtain_spacing=params.curtain_spacing,
+        x_center=x_center,
+    )
+    total = sum(len(c["points_2d"]) for c in curtains)
+    print(f"Curtains: {len(curtains)} planes, {total} beads in {time.time()-t0:.2f}s")
+
+    plane_xs = curtain_x_positions(
+        params.curtain_count, params.curtain_spacing, x_center
+    )
+    display.render_curtain_planes(plane_xs, params.curtain_width, params.curtain_height)
+    display.render_pointclouds(curtains)
+    print("Rendered. Look at the viewport.")
 
 
 if __name__ == "__main__":

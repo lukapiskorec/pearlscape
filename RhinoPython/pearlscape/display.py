@@ -109,3 +109,28 @@ def render_pointclouds(curtains: Sequence[dict]) -> None:
         ])
         add_pointcloud(projected, layer_path, colors=c.get("colors"))
     sc.doc.Views.Redraw()
+
+
+def render_curtain_planes(
+    plane_xs: Sequence[float],
+    width: float,
+    height: float,
+) -> None:
+    """Render the curtain rectangles as outlines for visual reference."""
+    layer_path = f"{PEARLSCAPE_PARENT_LAYER}::{CURTAIN_PLANES_LAYER}"
+    layer_idx = _ensure_layer(layer_path)
+    doc = sc.doc
+    half_w = width / 2.0
+    for x in plane_xs:
+        corners = [
+            rg.Point3d(x, -half_w, 0.0),
+            rg.Point3d(x,  half_w, 0.0),
+            rg.Point3d(x,  half_w, height),
+            rg.Point3d(x, -half_w, height),
+            rg.Point3d(x, -half_w, 0.0),
+        ]
+        polyline = rg.Polyline(corners)
+        attrs = Rhino.DocObjects.ObjectAttributes()
+        attrs.LayerIndex = layer_idx
+        doc.Objects.AddPolyline(polyline, attrs)
+    sc.doc.Views.Redraw()

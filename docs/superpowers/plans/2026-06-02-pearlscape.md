@@ -950,24 +950,6 @@ def slice_and_project(
 def array_x_center(cave_length: float) -> float:
     """The curtain array centers on the cave's midpoint along X."""
     return cave_length / 2.0
-
-
-if __name__ == "__main__":
-    from .params import PearlscapeParams
-    from .cave import make_default_cave
-    p = PearlscapeParams()
-    pts = make_default_cave(p).sample_surface_points()
-    curtains = slice_and_project(
-        pts,
-        curtain_count=p.curtain_count,
-        curtain_spacing=p.curtain_spacing,
-        x_center=array_x_center(p.cave_length),
-    )
-    print(f"{len(curtains)} curtains, "
-          f"total assigned beads: {sum(len(c['points_2d']) for c in curtains)}")
-    counts = [len(c["points_2d"]) for c in curtains]
-    print(f"Min/mean/max beads per curtain: "
-          f"{min(counts)}/{sum(counts)//len(counts)}/{max(counts)}")
 ```
 
 - [ ] **Step 2: Add curtain-plane rectangle rendering to `display.py`**
