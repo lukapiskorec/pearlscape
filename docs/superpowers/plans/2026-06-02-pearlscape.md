@@ -1391,6 +1391,7 @@ import Rhino
 import Rhino.Geometry as rg
 import Rhino.Display as rd
 import scriptcontext as sc
+import System.Drawing as sd
 
 
 PAGE_SIZES_MM = {
@@ -1400,22 +1401,6 @@ PAGE_SIZES_MM = {
     "A1": (594.0, 841.0),
     "A0": (841.0, 1189.0),
 }
-
-
-def _curtains_parent_layer_index() -> int:
-    doc = sc.doc
-    idx = doc.Layers.FindByFullPath("Pearlscape::Curtains", -1)
-    if idx < 0:
-        raise RuntimeError("Pearlscape::Curtains parent layer not found. Run build_scene first.")
-    return idx
-
-
-def _curtain_layer_index(curtain_idx: int) -> int:
-    path = f"Pearlscape::Curtains::Curtain_{curtain_idx:02d}"
-    idx = sc.doc.Layers.FindByFullPath(path, -1)
-    if idx < 0:
-        raise RuntimeError(f"Layer not found: {path}")
-    return idx
 
 
 def _set_layout_layer_visibility(page: rd.RhinoPageView, visible_curtain: int) -> None:
@@ -1496,15 +1481,20 @@ def create_curtain_layouts(
                          f"options: {sorted(PAGE_SIZES_MM)}")
     page_w, page_h = PAGE_SIZES_MM[page_size]
 
+    # Idempotency: drop any pre-existing Curtain_NN layouts before creating
+    # the new set. Rhino 8's RhinoCommon API for page-view deletion from
+    # Python is awkward: ViewTable exposes neither Remove nor Close, and
+    # the `-_DeleteLayout` macro via RunScript runs asynchronously (so the
+    # layouts persist for the rest of the script). The instance-level
+    # RhinoView.Close() is the only call that removes a page view
+    # synchronously from inside a Python script.
+    for v in list(sc.doc.Views.GetPageViews()):
+        if v.PageName.startswith("Curtain_"):
+            v.Close()
+
     names = []
     for i, x in enumerate(plane_xs):
         name = f"Curtain_{i:02d}"
-        # Remove any pre-existing layout with this name to keep runs idempotent.
-        existing = sc.doc.Views.GetPageViews()
-        for v in existing:
-            if v.PageName == name:
-                sc.doc.Views.Remove(v)
-                break
         page = _make_layout(name, page_w, page_h)
         _add_orthographic_detail(page, x, curtain_width, curtain_height)
         _set_layout_layer_visibility(page, i)
@@ -1513,19 +1503,30 @@ def create_curtain_layouts(
     return names
 
 
-def export_all_pdfs(output_dir: str) -> List[str]:
-    """Export every Curtain_NN layout as its own PDF. Returns the list of output paths."""
+def export_all_pdfs(output_dir: str, dpi: float = 300.0) -> List[str]:
+    """Export every Curtain_NN layout as its own PDF. Returns the list of output paths.
+
+    Uses Rhino 8's ViewCaptureSettings to specify per-page size and DPI; the
+    earlier `pdf.AddPage(view, w, h, dpi)` 4-arg overload was removed in
+    favour of this settings-object pattern.
+    """
     os.makedirs(output_dir, exist_ok=True)
     out_paths: List[str] = []
+    seen_names = set()
     for view in sc.doc.Views.GetPageViews():
         if not view.PageName.startswith("Curtain_"):
             continue
+        if view.PageName in seen_names:
+            continue
+        seen_names.add(view.PageName)
         out_path = os.path.join(output_dir, f"{view.PageName}.pdf")
+        # Page dimensions in mm -> pixels at chosen DPI (1 inch = 25.4 mm).
+        pw_px = int(round(view.PageWidth / 25.4 * dpi))
+        ph_px = int(round(view.PageHeight / 25.4 * dpi))
+        size = sd.Size(pw_px, ph_px)
+        settings = Rhino.Display.ViewCaptureSettings(view, size, dpi)
         pdf = Rhino.FileIO.FilePdf.Create()
-        page_w_mm = view.PageWidth
-        page_h_mm = view.PageHeight
-        # Use 600 DPI for crisp dot reproduction.
-        pdf.AddPage(view, page_w_mm, page_h_mm, 600)
+        pdf.AddPage(settings)
         pdf.Write(out_path)
         out_paths.append(out_path)
     return out_paths

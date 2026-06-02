@@ -6,6 +6,9 @@ dist/
 build/
 *.tsbuildinfo
 
+# Pearlscape exports
+RhinoPython/exports/
+
 # Environment variables
 .env
 .env.local

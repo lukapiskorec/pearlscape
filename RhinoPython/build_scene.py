@@ -22,6 +22,7 @@ from pearlscape.cave import make_default_cave
 from pearlscape.curtains import array_x_center, curtain_x_positions, slice_and_project
 from pearlscape import color as color_mod
 from pearlscape import display
+from pearlscape import export as export_mod
 
 
 def main() -> None:
@@ -59,6 +60,17 @@ def main() -> None:
     else:
         raise ValueError(f"Unknown display_mode: {params.display_mode!r}")
     print(f"Rendered ({params.display_mode}). Look at the viewport.")
+
+    out_dir = os.path.join(_HERE, params.pdf_output_dir)
+    t0 = time.time()
+    layout_names = export_mod.create_curtain_layouts(
+        list(plane_xs), params.curtain_width, params.curtain_height,
+        page_size=params.pdf_page_size,
+    )
+    print(f"Created {len(layout_names)} layouts in {time.time()-t0:.2f}s")
+    t0 = time.time()
+    pdf_paths = export_mod.export_all_pdfs(out_dir)
+    print(f"Exported {len(pdf_paths)} PDFs to {out_dir} in {time.time()-t0:.2f}s")
 
 
 if __name__ == "__main__":
