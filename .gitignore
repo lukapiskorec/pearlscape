@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+
+# Dev tool caches
+.turbo/
+.vite/
+
+# ML & training data
+/data/
+*.csv
+*.onnx
+*.zip
+*.parquet
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude
+CLAUDE.md
+.claude/settings.local.json
