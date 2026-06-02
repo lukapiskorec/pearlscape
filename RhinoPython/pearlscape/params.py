@@ -53,7 +53,12 @@ class PearlscapeParams:
     color_fbm_gain: float = 0.5
     color_noise_seed: int = 42
 
-    # --- Display / export ---
+    # --- Pipeline / display / export ---
+    # pipeline_mode controls how much of the pipeline runs:
+    #   "cave"     -> raw cave point cloud only (fastest; tune geometry)
+    #   "curtains" -> cave is sliced into curtains and coloured (no PDF I/O)
+    #   "export"   -> curtains + per-curtain layouts + PDFs (full pipeline)
+    pipeline_mode: str = "cave"
     display_mode: str = "pointcloud"   # "pointcloud" | "instances"
     instance_sphere_subd: int = 2
     pdf_page_size: str = "A1"
@@ -65,5 +70,6 @@ class PearlscapeParams:
             f"({self.cave_radius}) to avoid pinching the cave shut."
         )
         assert self.curtain_count >= 2
+        assert self.pipeline_mode in ("cave", "curtains", "export")
         assert self.display_mode in ("pointcloud", "instances")
         assert len(self.palette) >= 2

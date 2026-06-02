@@ -34,6 +34,24 @@ def main() -> None:
     pts = cave.sample_surface_points()
     print(f"Cave: {len(pts)} surface points in {time.time()-t0:.2f}s")
 
+    if params.pipeline_mode == "cave":
+        # Mode 1 — raw cave only: single coloured PointCloud on CaveReference.
+        t0 = time.time()
+        colors = color_mod.assign_colors(
+            pts,
+            palette=params.palette,
+            base_freq=params.color_base_freq,
+            octaves=params.color_fbm_octaves,
+            lacunarity=params.color_fbm_lacunarity,
+            gain=params.color_fbm_gain,
+            seed=params.color_noise_seed,
+        )
+        print(f"Colors assigned in {time.time()-t0:.2f}s")
+        display.render_cave_reference(pts, colors=colors)
+        print(f"Rendered cave only (pipeline_mode={params.pipeline_mode!r}).")
+        return
+
+    # Modes "curtains" and "export" both slice + colour + render per-curtain.
     t0 = time.time()
     x_center = array_x_center(params.cave_length)
     curtains = slice_and_project(
@@ -61,6 +79,10 @@ def main() -> None:
         raise ValueError(f"Unknown display_mode: {params.display_mode!r}")
     print(f"Rendered ({params.display_mode}). Look at the viewport.")
 
+    if params.pipeline_mode != "export":
+        return
+
+    # Mode 3 — full export: per-curtain layouts + PDFs.
     out_dir = os.path.join(_HERE, params.pdf_output_dir)
     t0 = time.time()
     layout_names = export_mod.create_curtain_layouts(

@@ -82,11 +82,14 @@ def add_pointcloud(
     return doc.Objects.AddPointCloud(cloud, attrs)
 
 
-def render_cave_reference(points: np.ndarray) -> None:
+def render_cave_reference(
+    points: np.ndarray,
+    colors: Optional[np.ndarray] = None,
+) -> None:
     """Render the raw, un-sliced cave as a single PointCloud on the
-    CaveReference layer. Used during early development."""
+    CaveReference layer. Pass `colors` (N, 3 uint8) for per-point colour."""
     layer_path = f"{PEARLSCAPE_PARENT_LAYER}::{CAVE_REFERENCE_LAYER}"
-    add_pointcloud(points, layer_path)
+    add_pointcloud(points, layer_path, colors=colors)
     sc.doc.Views.Redraw()
 
 
