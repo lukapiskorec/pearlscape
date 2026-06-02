@@ -20,6 +20,7 @@ import time
 from pearlscape import PearlscapeParams
 from pearlscape.cave import make_default_cave
 from pearlscape.curtains import array_x_center, curtain_x_positions, slice_and_project
+from pearlscape import color as color_mod
 from pearlscape import display
 
 
@@ -43,12 +44,16 @@ def main() -> None:
     total = sum(len(c["points_2d"]) for c in curtains)
     print(f"Curtains: {len(curtains)} planes, {total} beads in {time.time()-t0:.2f}s")
 
+    t0 = time.time()
+    color_mod.apply_to_curtains(curtains, params)
+    print(f"Colors assigned in {time.time()-t0:.2f}s")
+
     plane_xs = curtain_x_positions(
         params.curtain_count, params.curtain_spacing, x_center
     )
     display.render_curtain_planes(plane_xs, params.curtain_width, params.curtain_height)
     display.render_pointclouds(curtains)
-    print("Rendered. Look at the viewport.")
+    print(f"Rendered ({params.display_mode}). Look at the viewport.")
 
 
 if __name__ == "__main__":

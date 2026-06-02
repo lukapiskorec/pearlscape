@@ -1132,22 +1132,6 @@ def apply_to_curtains(curtains: List[dict], params) -> None:
         )
 
 
-if __name__ == "__main__":
-    from .params import PearlscapeParams
-    from .cave import make_default_cave
-    from .curtains import array_x_center, slice_and_project
-    p = PearlscapeParams()
-    pts = make_default_cave(p).sample_surface_points()
-    curtains = slice_and_project(
-        pts, p.curtain_count, p.curtain_spacing, array_x_center(p.cave_length),
-    )
-    apply_to_curtains(curtains, p)
-    # Print color histogram for the first curtain.
-    if len(curtains[0]["colors"]) > 0:
-        unique, counts = np.unique(curtains[0]["colors"], axis=0, return_counts=True)
-        print("Curtain 0 color distribution:")
-        for rgb, n in zip(unique, counts):
-            print(f"  rgb({rgb[0]:3d},{rgb[1]:3d},{rgb[2]:3d}) -> {n}")
 ```
 
 - [ ] **Step 2: Update `build_scene.py` to wire in color**
