@@ -57,7 +57,11 @@ __all__ = ["PearlscapeParams"]
 - [ ] **Step 3: Write `pearlscape/params.py`**
 
 ```python
-"""Single source of truth for all tunable parameters."""
+"""Single source of truth for all tunable parameters.
+
+Units: all lengths in millimeters (Rhino document units). Frequencies are in
+cycles per millimeter. A value of 1200 means 1.2 metres.
+"""
 
 from dataclasses import dataclass, field
 from typing import List, Tuple
@@ -79,30 +83,30 @@ def _default_palette() -> List[RGB]:
 
 @dataclass
 class PearlscapeParams:
-    # --- Cave geometry ---
-    cave_radius: float = 1.2
-    cave_length: float = 5.0
-    fbm_amplitude: float = 0.30
-    fbm_base_freq: float = 0.8
+    # --- Cave geometry (mm) ---
+    cave_radius: float = 1200.0
+    cave_length: float = 5000.0
+    fbm_amplitude: float = 300.0
+    fbm_base_freq: float = 0.0008   # cycles per mm
     fbm_octaves: int = 4
     fbm_lacunarity: float = 2.0
     fbm_gain: float = 0.5
     noise_seed: int = 1
 
-    # --- Curtain array ---
+    # --- Curtain array (mm) ---
     curtain_count: int = 25
-    curtain_spacing: float = 0.20
-    curtain_width: float = 2.5
-    curtain_height: float = 3.0
-    cave_center_z: float = 1.5   # cave centerline elevation
+    curtain_spacing: float = 200.0
+    curtain_width: float = 2500.0
+    curtain_height: float = 3000.0
+    cave_center_z: float = 1500.0   # cave centerline elevation
 
     # --- Beads ---
     total_surface_samples: int = 60_000
-    bead_diameter: float = 0.006  # 6 mm
+    bead_diameter: float = 6.0   # mm
 
     # --- Color ---
     palette: List[RGB] = field(default_factory=_default_palette)
-    color_base_freq: float = 0.6
+    color_base_freq: float = 0.0006   # cycles per mm
     color_fbm_octaves: int = 2
     color_fbm_lacunarity: float = 2.0
     color_fbm_gain: float = 0.5
@@ -830,6 +834,12 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
+# Rhino's Script Editor caches imported modules across F5 runs. Drop any
+# cached pearlscape modules so source edits take effect on every run.
+for _m in list(sys.modules):
+    if _m == "pearlscape" or _m.startswith("pearlscape."):
+        del sys.modules[_m]
+
 import time
 
 from pearlscape import PearlscapeParams
@@ -1005,6 +1015,12 @@ import sys
 _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
+
+# Rhino's Script Editor caches imported modules across F5 runs. Drop any
+# cached pearlscape modules so source edits take effect on every run.
+for _m in list(sys.modules):
+    if _m == "pearlscape" or _m.startswith("pearlscape."):
+        del sys.modules[_m]
 
 import time
 
@@ -1205,6 +1221,12 @@ import sys
 _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
+
+# Rhino's Script Editor caches imported modules across F5 runs. Drop any
+# cached pearlscape modules so source edits take effect on every run.
+for _m in list(sys.modules):
+    if _m == "pearlscape" or _m.startswith("pearlscape."):
+        del sys.modules[_m]
 
 import time
 
@@ -1568,6 +1590,12 @@ import sys
 _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
+
+# Rhino's Script Editor caches imported modules across F5 runs. Drop any
+# cached pearlscape modules so source edits take effect on every run.
+for _m in list(sys.modules):
+    if _m == "pearlscape" or _m.startswith("pearlscape."):
+        del sys.modules[_m]
 
 import time
 
