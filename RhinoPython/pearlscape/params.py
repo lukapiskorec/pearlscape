@@ -7,6 +7,8 @@ cycles per millimeter. A value of 1200 means 1.2 metres.
 from dataclasses import dataclass, field
 from typing import List, Tuple
 
+from pearlscape import palettes
+
 
 RGB = Tuple[int, int, int]
 
@@ -69,7 +71,7 @@ class PearlscapeParams:
     bead_diameter: float = 6.0   # mm
 
     # --- Color ---
-    palette: List[RGB] = field(default_factory=_default_palette)
+    palette: List[RGB] = field(default_factory=lambda: list(palettes.OCEAN_BLUE))
     color_base_freq: float = 0.0015   # cycles per mm
     color_fbm_octaves: int = 2
     color_fbm_lacunarity: float = 2.0
