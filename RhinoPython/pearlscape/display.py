@@ -23,6 +23,7 @@ PEARLSCAPE_PARENT_LAYER = "Pearlscape"
 CURTAINS_LAYER = "Curtains"
 CAVE_REFERENCE_LAYER = "CaveReference"
 CURTAIN_PLANES_LAYER = "CurtainPlanes"
+CAVE_SURFACE_LAYER = "CaveSurface"
 
 
 def _ensure_layer(path: str, color: Optional[sd.Color] = None) -> int:
@@ -142,6 +143,50 @@ def render_curtain_planes(
         attrs.LayerIndex = layer_idx
         doc.Objects.AddPolyline(polyline, attrs)
     sc.doc.Views.Redraw()
+
+
+def render_cave_surface(surface: rg.Surface) -> None:
+    """Add the base NURBS cave surface to Pearlscape::CaveSurface, replacing any
+    surface already on that layer. Real document geometry, so it persists across
+    F5 runs and can be hand-edited (see nurbs_surface_source="reuse")."""
+    doc = sc.doc
+    layer_path = f"{PEARLSCAPE_PARENT_LAYER}::{CAVE_SURFACE_LAYER}"
+    layer_idx = _ensure_layer(layer_path)
+    # Clear any existing objects on the layer first.
+    layer = doc.Layers[layer_idx]
+    existing = doc.Objects.FindByLayer(layer)
+    if existing:
+        for obj in existing:
+            doc.Objects.Delete(obj, True)
+    attrs = Rhino.DocObjects.ObjectAttributes()
+    attrs.LayerIndex = layer_idx
+    doc.Objects.AddSurface(surface, attrs)
+    sc.doc.Views.Redraw()
+
+
+def find_cave_surface() -> Optional[rg.NurbsSurface]:
+    """Return the first surface on Pearlscape::CaveSurface, or None.
+
+    Accepts a raw Surface or a single-face Brep (what AddSurface round-trips to);
+    returns a NurbsSurface for uniform downstream evaluation.
+    """
+    doc = sc.doc
+    layer_path = f"{PEARLSCAPE_PARENT_LAYER}::{CAVE_SURFACE_LAYER}"
+    idx = doc.Layers.FindByFullPath(layer_path, -1)
+    if idx < 0:
+        return None
+    layer = doc.Layers[idx]
+    objs = doc.Objects.FindByLayer(layer)
+    if not objs:
+        return None
+    geo = objs[0].Geometry
+    if isinstance(geo, rg.Brep):
+        if geo.Faces.Count == 0:
+            return None
+        return geo.Faces[0].UnderlyingSurface().ToNurbsSurface()
+    if isinstance(geo, rg.Surface):
+        return geo.ToNurbsSurface()
+    return None
 
 
 def _build_bead_block_definition(diameter: float, subd: int, name: str = "PearlscapeBead") -> int:
