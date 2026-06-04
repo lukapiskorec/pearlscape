@@ -105,7 +105,7 @@ class PearlscapeParams:
         assert self.cave_type in ("cylinder", "nurbs")
         assert self.nurbs_surface_source in ("rebuild", "reuse")
         assert self.nurbs_sections >= 2
-        assert self.nurbs_section_points >= 3
+        assert self.nurbs_section_points >= 4   # periodic degree-3 ring needs >= 4 pts
         assert 0.0 <= self.nurbs_radius_jitter < 1.0
         assert self.nurbs_grid_u >= 2 and self.nurbs_grid_v >= 3
         assert len(self.palette) >= 2
