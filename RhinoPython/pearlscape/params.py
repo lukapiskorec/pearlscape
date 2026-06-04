@@ -65,7 +65,7 @@ class PearlscapeParams:
     #   "curtains" -> cave is sliced into curtains and coloured (no PDF I/O)
     #   "export"   -> curtains + per-curtain layouts + PDFs (full pipeline)
     pipeline_mode: str = "cave"
-    display_mode: str = "pointcloud"   # "pointcloud" | "instances"
+    display_mode: str = "sprites"   # "pointcloud" | "instances" | "sprites"
     instance_sphere_subd: int = 2
     pdf_page_size: str = "A1"
     pdf_output_dir: str = "exports"
@@ -78,5 +78,9 @@ class PearlscapeParams:
         assert self.curtain_count >= 2
         assert self.noise_type in ("fbm", "ridged")
         assert self.pipeline_mode in ("cave", "curtains", "export")
-        assert self.display_mode in ("pointcloud", "instances")
+        assert self.display_mode in ("pointcloud", "instances", "sprites")
+        assert not (self.display_mode == "sprites" and self.pipeline_mode == "export"), (
+            "display_mode='sprites' is screen-only and cannot drive PDF export; "
+            "use 'pointcloud' or 'instances' for pipeline_mode='export'."
+        )
         assert len(self.palette) >= 2

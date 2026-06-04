@@ -29,6 +29,10 @@ def main() -> None:
     params = PearlscapeParams()
     params.validate()
 
+    # Drop any sprite conduit from a previous F5 run so a mode switch (e.g.
+    # sprites -> pointcloud) doesn't leave stale beads drawn on screen.
+    display.clear_sprite_conduit()
+
     t0 = time.time()
     cave = make_default_cave(params)
     pts = cave.sample_surface_points()
@@ -47,8 +51,12 @@ def main() -> None:
             seed=params.color_noise_seed,
         )
         print(f"Colors assigned in {time.time()-t0:.2f}s")
-        display.render_cave_reference(pts, colors=colors)
-        print(f"Rendered cave only (pipeline_mode={params.pipeline_mode!r}).")
+        if params.display_mode == "sprites":
+            display.render_sprites(pts, colors, params.bead_diameter)
+        else:
+            display.render_cave_reference(pts, colors=colors)
+        print(f"Rendered cave only ({params.display_mode}, "
+              f"pipeline_mode={params.pipeline_mode!r}).")
         return
 
     # Modes "curtains" and "export" both slice + colour + render per-curtain.
@@ -75,6 +83,8 @@ def main() -> None:
         display.render_pointclouds(curtains)
     elif params.display_mode == "instances":
         display.render_instances(curtains, params.bead_diameter, params.instance_sphere_subd)
+    elif params.display_mode == "sprites":
+        display.render_sprites_curtains(curtains, params.bead_diameter)
     else:
         raise ValueError(f"Unknown display_mode: {params.display_mode!r}")
     print(f"Rendered ({params.display_mode}). Look at the viewport.")

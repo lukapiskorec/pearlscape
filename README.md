@@ -30,14 +30,17 @@ Edit `pipeline_mode` in `RhinoPython/pearlscape/params.py` to control how much o
 
 Each mode is a strict superset of the one above it.
 
-## The `display_mode` toggle (applies to `"curtains"` and `"export"` modes)
+## The `display_mode` toggle
 
 | `display_mode`  | What you see                                                          | Use when…                                  |
 |-----------------|-----------------------------------------------------------------------|--------------------------------------------|
 | `"pointcloud"`  | Flat coloured point dots — one Rhino `PointCloud` per curtain.        | Fast iteration; the everyday working mode. |
 | `"instances"`   | Coloured mesh spheres — one `InstanceReference` per bead.             | Material / lighting / DOF renders.         |
+| `"sprites"`     | Coloured circles (`bead_diameter` mm, scale with distance), drawn by a display conduit. | Eyeballing very high bead counts fast.     |
 
 Instances mode is heavier (60k InstanceReferences for the default bead count). For first tests in this mode, lower `total_surface_samples` to `5_000` and scale back up once you've confirmed it renders correctly.
+
+Sprites mode is the fast path for large bead counts: all beads draw in a single batched `DrawSprites` call. Caveats — it is **screen-only** (a display conduit, not document geometry), so it does **not** appear in PDF export (`pipeline_mode="export"` rejects it) and offers no per-curtain layer toggling (it's all-beads-or-nothing). It works in `pipeline_mode="cave"` and `"curtains"`. The conduit persists across F5 runs and is cleared automatically when you switch back to `pointcloud`/`instances`. Because sprites aren't document geometry, they can't be selected or deleted with normal Rhino tools — to hide them without re-running the pipeline, open `RhinoPython/clear_sprites.py` and press F5.
 
 ## Parameter guide
 
@@ -98,7 +101,7 @@ The colour noise is sampled at each bead's *original 3D position* (not its proje
 | Parameter              | Default        | Meaning                                                                |
 |------------------------|----------------|------------------------------------------------------------------------|
 | `pipeline_mode`        | `"export"`     | `"cave"` / `"curtains"` / `"export"`. See the modes table above.       |
-| `display_mode`         | `"pointcloud"` | `"pointcloud"` / `"instances"`. See the display table above.           |
+| `display_mode`         | `"pointcloud"` | `"pointcloud"` / `"instances"` / `"sprites"`. See the display table above. |
 | `instance_sphere_subd` | `2`            | Mesh density for instance-mode bead spheres.                           |
 | `pdf_page_size`        | `"A1"`         | One of `"A4"`, `"A3"`, `"A2"`, `"A1"`, `"A0"`.                         |
 | `pdf_output_dir`       | `"exports"`    | Output directory relative to `RhinoPython/` (gitignored).              |
@@ -110,6 +113,7 @@ pearlscape/
 ├── README.md                                # this file
 ├── RhinoPython/
 │   ├── build_scene.py                       # F5 entry point — runs the pipeline
+│   ├── clear_sprites.py                      # F5 helper — hides sprite beads
 │   ├── exports/                             # generated PDFs (gitignored)
 │   ├── README.md                            # short "how to run" pointer
 │   └── pearlscape/

@@ -14,6 +14,7 @@ import numpy as np
 
 import Rhino
 import Rhino.Geometry as rg
+import Rhino.Display as rd
 import scriptcontext as sc
 import System.Drawing as sd
 
@@ -60,6 +61,17 @@ def _np_to_color_list(colors: Optional[np.ndarray]) -> Optional[List[sd.Color]]:
     return [sd.Color.FromArgb(int(c[0]), int(c[1]), int(c[2])) for c in colors]
 
 
+def _projected_points(c: dict) -> np.ndarray:
+    """Project a curtain's 2D bead positions onto its plane: (plane_x, y, z)."""
+    plane_x = c["plane_x"]
+    pts_2d = c["points_2d"]
+    return np.column_stack([
+        np.full(pts_2d.shape[0], plane_x),
+        pts_2d[:, 0],
+        pts_2d[:, 1],
+    ])
+
+
 def add_pointcloud(
     points: np.ndarray,
     layer_path: str,
@@ -103,14 +115,7 @@ def render_pointclouds(curtains: Sequence[dict]) -> None:
     """
     for i, c in enumerate(curtains):
         layer_path = f"{PEARLSCAPE_PARENT_LAYER}::{CURTAINS_LAYER}::Curtain_{i:02d}"
-        plane_x = c["plane_x"]
-        pts_2d = c["points_2d"]
-        projected = np.column_stack([
-            np.full(pts_2d.shape[0], plane_x),
-            pts_2d[:, 0],
-            pts_2d[:, 1],
-        ])
-        add_pointcloud(projected, layer_path, colors=c.get("colors"))
+        add_pointcloud(_projected_points(c), layer_path, colors=c.get("colors"))
     sc.doc.Views.Redraw()
 
 
@@ -198,3 +203,161 @@ def render_instances(curtains: Sequence[dict], diameter: float, subd: int) -> No
                 )
             doc.Objects.AddInstanceObject(block_idx, t, attrs)
     sc.doc.Views.Redraw()
+
+
+# --- Sprite display mode -----------------------------------------------------
+# Screen-aligned colored circles drawn by a DisplayConduit. Fast: all beads are
+# drawn in one batched DrawSprites call per frame. The conduit is viewport-only
+# (not document geometry), so it does NOT appear in PDF export.
+
+_SPRITE_CONDUIT_KEY = "pearlscape_sprite_conduit"
+
+
+def _make_bead_sprites(px: int = 64):
+    """Build the two stacked sprite bitmaps for a glass bead.
+
+    Returns (body_bitmap, specular_bitmap), drawn as two passes:
+
+    1. Body — grayscale + alpha, *multiplied* by each bead's colour
+       (DisplayBitmapDrawList tint). An opaque disc (transparent only *outside*
+       the circle, with a ~2px antialiased edge), a darker/richer core, and a
+       soft colour glint at the bottom-left (the brightest version of the bead
+       colour, since multiply can't brighten past it).
+    2. Specular — pure white + alpha, drawn untinted on top: a sharp-edged
+       highlight at the top-right that multiply-tinting could never produce.
+       Masked to the disc so it can't spill past the rim, and it sits over the
+       opaque body so its antialiased edge blends against the bead, not the
+       background.
+
+    Built once per conduit, so the per-pixel cost is irrelevant at draw time.
+    """
+    n = px
+    yy, xx = np.mgrid[0:n, 0:n].astype(float)
+    cx = cy = (n - 1) / 2.0
+    radius = n / 2.0
+    t = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2) / radius   # 0 centre .. 1 rim
+
+    # Opaque disc: alpha 1 inside, ~2px antialiased edge, 0 outside.
+    aa = 2.0 / n
+    disc_a = np.clip((1.0 - t) / aa, 0.0, 1.0)
+
+    # Body luminance: darker/richer core nudged toward the top-right (opposite the
+    # colour glint), brightening outward.
+    bcx, bcy = cx + 0.08 * radius, cy - 0.08 * radius
+    bt = np.clip(np.sqrt((xx - bcx) ** 2 + (yy - bcy) ** 2) / radius, 0.0, 1.0)
+    lum = 0.45 + (0.88 - 0.45) * bt
+    # Colour glint, bottom-left.
+    gcx, gcy = cx - 0.40 * radius, cy + 0.40 * radius
+    gd = np.sqrt((xx - gcx) ** 2 + (yy - gcy) ** 2) / radius
+    lum = np.clip(lum + 0.6 * np.clip(1.0 - gd / 0.32, 0.0, 1.0) ** 2, 0.0, 1.0)
+
+    # White specular, top-right: a sharp-edged disc (~2px AA, same as the body),
+    # masked to the bead so it can't spill past the rim.
+    scx, scy = cx + 0.40 * radius, cy - 0.40 * radius
+    sd_ = np.sqrt((xx - scx) ** 2 + (yy - scy) ** 2) / radius
+    spec_radius = 0.15
+    spec_a = np.clip((spec_radius - sd_) / aa, 0.0, 1.0) * disc_a
+
+    g = (lum * 255.0).astype(np.uint8)
+    body_alpha = (disc_a * 255.0).astype(np.uint8)
+    spec_alpha = (spec_a * 255.0).astype(np.uint8)
+
+    body = sd.Bitmap(n, n)
+    spec = sd.Bitmap(n, n)
+    for y in range(n):
+        for x in range(n):
+            gv = int(g[y, x])
+            body.SetPixel(x, y, sd.Color.FromArgb(int(body_alpha[y, x]), gv, gv, gv))
+            spec.SetPixel(x, y, sd.Color.FromArgb(int(spec_alpha[y, x]), 255, 255, 255))
+    return body, spec
+
+
+class SpriteConduit(rd.DisplayConduit):
+    """Draw bead positions as world-sized, screen-aligned glass-bead sprites.
+
+    Two stacked DisplayBitmaps (body + white specular) are drawn as two batched
+    DrawSprites passes. The body is tinted per-point by the bead colours; the
+    specular pass is tinted all-white so the highlight stays pure white. Both
+    point lists are built once at construction and reused across redraws.
+    """
+
+    def __init__(self, points: np.ndarray, colors: Optional[np.ndarray], diameter: float) -> None:
+        # Explicit base init is the documented RhinoCommon-Python pattern for
+        # subclassing DisplayConduit (avoids pythonnet MRO surprises).
+        rd.DisplayConduit.__init__(self)
+        self._diameter = float(diameter)
+        body_bmp, spec_bmp = _make_bead_sprites()
+        self._bitmap = rd.DisplayBitmap(body_bmp)
+        self._spec_bitmap = rd.DisplayBitmap(spec_bmp)
+
+        pt_list = _np_to_point3d_list(points)
+        color_list = _np_to_color_list(colors)
+        if color_list is None:
+            color_list = [sd.Color.White] * len(pt_list)
+        self._sprites = rd.DisplayBitmapDrawList()
+        self._sprites.SetPoints(pt_list, color_list)
+        # Specular pass: same points, all-white tint so white × white stays white
+        # regardless of bead colour. [White] * n is N cheap references, not N objects.
+        self._spec_list = rd.DisplayBitmapDrawList()
+        self._spec_list.SetPoints(pt_list, [sd.Color.White] * len(pt_list))
+
+        bbox = rg.BoundingBox(pt_list)
+        bbox.Inflate(self._diameter / 2.0)
+        self._bbox = bbox
+
+    def CalculateBoundingBox(self, e) -> None:
+        # Keep the sprites inside the view's clipping bounds and let ZoomExtents
+        # frame them — without this the conduit would be culled.
+        e.IncludeBoundingBox(self._bbox)
+
+    def PostDrawObjects(self, e) -> None:
+        # sizeInWorldSpace=True -> diameter is in mm and scales with distance.
+        # Pass 1: bead body, tinted per-point. Pass 2: pure-white specular on top.
+        e.Display.DrawSprites(self._bitmap, self._sprites, self._diameter, True)
+        e.Display.DrawSprites(self._spec_bitmap, self._spec_list, self._diameter, True)
+
+
+def clear_sprite_conduit() -> None:
+    """Disable and drop any sprite conduit left over from a previous run.
+
+    Called at the start of every render so switching away from sprites mode
+    leaves no stale beads on screen.
+    """
+    existing = sc.sticky.get(_SPRITE_CONDUIT_KEY)
+    if existing is not None:
+        existing.Enabled = False
+        del sc.sticky[_SPRITE_CONDUIT_KEY]
+
+
+def render_sprites(points: np.ndarray, colors: Optional[np.ndarray], diameter: float) -> None:
+    """Render beads as colored circle sprites via a persistent conduit.
+
+    Stored in scriptcontext.sticky so the conduit survives after the F5 script
+    returns (otherwise it is garbage-collected and the beads vanish).
+    """
+    clear_sprite_conduit()
+    conduit = SpriteConduit(points, colors, diameter)
+    conduit.Enabled = True
+    sc.sticky[_SPRITE_CONDUIT_KEY] = conduit
+    sc.doc.Views.Redraw()
+
+
+def render_sprites_curtains(curtains: Sequence[dict], diameter: float) -> None:
+    """Flatten every curtain's projected beads into one sprite conduit.
+
+    A single combined conduit (one draw call) is the fast path; per-curtain
+    layer visibility is not available in sprites mode.
+    """
+    all_pts = []
+    all_cols = []
+    have_colors = True
+    for c in curtains:
+        all_pts.append(_projected_points(c))
+        cc = c.get("colors")
+        if cc is None:
+            have_colors = False
+        else:
+            all_cols.append(cc)
+    combined_pts = np.vstack(all_pts) if all_pts else np.empty((0, 3))
+    combined_cols = np.vstack(all_cols) if (have_colors and all_cols) else None
+    render_sprites(combined_pts, combined_cols, diameter)
