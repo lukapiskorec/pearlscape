@@ -23,7 +23,7 @@ _PKG_PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PKG_PARENT not in sys.path:
     sys.path.insert(0, _PKG_PARENT)
 
-from pearlscape.noise import fbm3_01, make_perm
+from pearlscape.noise import fbm3_01, ridged3_01, make_perm
 from pearlscape.sampling import bridson_torus, estimate_radius_for_count
 
 
@@ -37,7 +37,8 @@ class CaveSurface(Protocol):
 
 class CylinderFBMCave:
     """A cylinder along X, with surface points blue-noise-sampled and
-    radially displaced inward by FBM noise."""
+    radially displaced inward by noise. The noise is either smooth FBM or
+    sharp ridged multifractal, selected by `noise_type`."""
 
     def __init__(
         self,
@@ -52,6 +53,7 @@ class CylinderFBMCave:
         noise_seed: int,
         target_samples: int,
         center_z: float,
+        noise_type: str = "fbm",
         sampling_seed: int = 0,
         radius_shrink: float = 0.93,
     ) -> None:
@@ -59,6 +61,8 @@ class CylinderFBMCave:
             raise ValueError(
                 f"fbm_amplitude ({fbm_amplitude}) must be < radius ({radius})"
             )
+        if noise_type not in ("fbm", "ridged"):
+            raise ValueError(f"noise_type must be 'fbm' or 'ridged', got {noise_type!r}")
         self.radius = radius
         self.length = length
         self.fbm_amplitude = fbm_amplitude
@@ -67,6 +71,7 @@ class CylinderFBMCave:
         self.fbm_lacunarity = fbm_lacunarity
         self.fbm_gain = fbm_gain
         self.noise_seed = noise_seed
+        self.noise_type = noise_type
         self.target_samples = target_samples
         self.center_z = center_z
         self.sampling_seed = sampling_seed
@@ -99,7 +104,8 @@ class CylinderFBMCave:
         ]) * self.fbm_base_freq
 
         perm = make_perm(self.noise_seed)
-        n01 = fbm3_01(
+        noise_fn = ridged3_01 if self.noise_type == "ridged" else fbm3_01
+        n01 = noise_fn(
             base, perm,
             octaves=self.fbm_octaves,
             lacunarity=self.fbm_lacunarity,
@@ -130,6 +136,7 @@ def make_default_cave(params) -> CylinderFBMCave:
         noise_seed=params.noise_seed,
         target_samples=params.total_surface_samples,
         center_z=params.cave_center_z,
+        noise_type=params.noise_type,
     )
 
 

@@ -114,6 +114,43 @@ def fbm3_01(
     return 0.5 * (fbm3(p, perm, octaves=octaves, lacunarity=lacunarity, gain=gain) + 1.0)
 
 
+def ridged3_01(
+    p: np.ndarray,
+    perm: np.ndarray,
+    *,
+    octaves: int,
+    lacunarity: float,
+    gain: float,
+) -> np.ndarray:
+    """Ridged multifractal noise, normalized to ~[0, 1].
+
+    Musgrave's weighted ridged multifractal: each octave is `1 - |perlin|`
+    (sharp ridges where Perlin crosses zero), squared to sharpen, then
+    attenuated by the previous octave's signal via `weight`. Drop-in
+    alternative to `fbm3_01` — same signature, same output range, so the
+    caller's amplitude semantics are unchanged. Ridge peaks reach ~1; flats
+    sit near 0.
+    """
+    value = np.zeros(p.shape[0], dtype=np.float64)
+    weight = np.ones(p.shape[0], dtype=np.float64)
+    amplitude = 1.0
+    frequency = 1.0
+    norm = 0.0
+    for _ in range(octaves):
+        # perlin3 is already ~[-1, 1], so 1 - |perlin| gives the ridge directly
+        # (no sub(0.5).mul(2) remap needed, unlike a [0, 1] base noise).
+        n = 1.0 - np.abs(perlin3(p * frequency, perm))
+        signal = n * n * weight
+        value = value + signal * amplitude
+        weight = np.clip(signal, 0.0, 1.0)
+        norm += amplitude
+        amplitude *= gain
+        frequency *= lacunarity
+    # Normalize by the amplitude sum (the max, reached when every octave's n=1),
+    # keeping output in [0, 1] so fbm_amplitude still means max displacement.
+    return value / norm if norm > 0 else value
+
+
 if __name__ == "__main__":
     # Smoke test: sample at non-integer coordinates (Perlin is zero at integer
     # lattice corners, so a 0..2 integer grid would produce all 0.5s).
@@ -129,3 +166,13 @@ if __name__ == "__main__":
           f"(varies: {bool(vals.max() - vals.min() > 0.01)})")
     vals2 = fbm3_01(pts, perm, octaves=4, lacunarity=2.0, gain=0.5)
     print("Deterministic:", bool(np.allclose(vals, vals2)))
+
+    # Ridged noise: same grid, check range, that it differs from FBM, deterministic.
+    rvals = ridged3_01(pts, perm, octaves=6, lacunarity=2.0, gain=0.5)
+    rvals2 = ridged3_01(pts, perm, octaves=6, lacunarity=2.0, gain=0.5)
+    print("\nRidged noise (same 3x3 grid):")
+    print(rvals.reshape(3, 3).round(3))
+    print(f"Min/max: {rvals.min():.3f} / {rvals.max():.3f}  "
+          f"(in [0,1]: {bool(rvals.min() >= 0.0 and rvals.max() <= 1.0)})")
+    print("Differs from FBM:", bool(not np.allclose(rvals, vals)))
+    print("Deterministic:", bool(np.allclose(rvals, rvals2)))

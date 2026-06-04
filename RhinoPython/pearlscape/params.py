@@ -26,12 +26,18 @@ def _default_palette() -> List[RGB]:
 class PearlscapeParams:
     # --- Cave geometry (mm) ---
     cave_radius: float = 1200.0
-    cave_length: float = 5000.0
-    fbm_amplitude: float = 300.0
-    fbm_base_freq: float = 0.0008   # cycles per mm
-    fbm_octaves: int = 4
+    cave_length: float = 2000.0
+
+    fbm_amplitude: float = 950.0
+    fbm_base_freq: float = 0.00035
+    fbm_octaves: int = 6
     fbm_lacunarity: float = 2.0
-    fbm_gain: float = 0.5
+    fbm_gain: float = 0.55
+
+    # Wall displacement noise: "fbm" (smooth, rolling) or "ridged" (sharp,
+    # craggy crevices). Reuses the fbm_* octave/lacunarity/gain params above.
+    noise_type: str = "ridged"
+
     noise_seed: int = 1
 
     # --- Curtain array (mm) ---
@@ -70,6 +76,7 @@ class PearlscapeParams:
             f"({self.cave_radius}) to avoid pinching the cave shut."
         )
         assert self.curtain_count >= 2
+        assert self.noise_type in ("fbm", "ridged")
         assert self.pipeline_mode in ("cave", "curtains", "export")
         assert self.display_mode in ("pointcloud", "instances")
         assert len(self.palette) >= 2

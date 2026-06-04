@@ -54,6 +54,7 @@ All tunable parameters live in `RhinoPython/pearlscape/params.py` in the `Pearls
 | `fbm_octaves`    | `4`       | Number of FBM octaves; more octaves = more fine detail.     |
 | `fbm_lacunarity` | `2.0`     | Per-octave frequency multiplier.                            |
 | `fbm_gain`       | `0.5`     | Per-octave amplitude multiplier.                            |
+| `noise_type`     | `"fbm"`   | `"fbm"` (smooth, rolling) or `"ridged"` (sharp inward crevices). Reuses the `fbm_*` octave/lacunarity/gain params. |
 | `noise_seed`     | `1`       | Seed for the geometry noise; change for a different cave.   |
 
 Tip: if you re-tune `cave_radius` and want the noise pattern to look the same, scale `fbm_base_freq` inversely (e.g. doubling radius → halve frequency).
