@@ -40,6 +40,25 @@ class PearlscapeParams:
 
     noise_seed: int = 1
 
+    # --- Cave geometry (NURBS, used when cave_type == "nurbs") ---
+    # "cylinder" -> CylinderFBMCave (radial noise on a cylinder).
+    # "nurbs"    -> NurbsLoftCave (lofted irregular tube, sampled + displaced).
+    cave_type: str = "cylinder"
+    # "rebuild" -> loft from the nurbs_* params each run (replaces the surface
+    #              on the Pearlscape::CaveSurface layer).
+    # "reuse"   -> sample the existing (possibly hand-edited) surface on that
+    #              layer; falls back to "rebuild" with a warning if none found.
+    nurbs_surface_source: str = "rebuild"
+    nurbs_sections: int = 8            # K: cross-section rings along X
+    nurbs_section_points: int = 12     # P: control points per ring
+    nurbs_radius_jitter: float = 0.35  # per-point radius variation, fraction of cave_radius
+    nurbs_radius_jitter_freq: float = 0.0006   # cycles/mm
+    nurbs_centerline_amp: float = 400.0        # meander amplitude (mm, Y/Z only)
+    nurbs_centerline_freq: float = 0.0003      # cycles/mm
+    nurbs_shape_seed: int = 7          # seed for shape noise (independent of noise_seed)
+    nurbs_grid_u: int = 180            # surface-eval grid divisions along X
+    nurbs_grid_v: int = 180            # surface-eval grid divisions around theta
+
     # --- Curtain array (mm) ---
     curtain_count: int = 25
     curtain_spacing: float = 200.0
@@ -83,4 +102,10 @@ class PearlscapeParams:
             "display_mode='sprites' is screen-only and cannot drive PDF export; "
             "use 'pointcloud' or 'instances' for pipeline_mode='export'."
         )
+        assert self.cave_type in ("cylinder", "nurbs")
+        assert self.nurbs_surface_source in ("rebuild", "reuse")
+        assert self.nurbs_sections >= 2
+        assert self.nurbs_section_points >= 3
+        assert 0.0 <= self.nurbs_radius_jitter < 1.0
+        assert self.nurbs_grid_u >= 2 and self.nurbs_grid_v >= 3
         assert len(self.palette) >= 2
