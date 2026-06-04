@@ -59,8 +59,30 @@ All tunable parameters live in `RhinoPython/pearlscape/params.py` in the `Pearls
 | `fbm_gain`       | `0.5`     | Per-octave amplitude multiplier.                            |
 | `noise_type`     | `"fbm"`   | `"fbm"` (smooth, rolling) or `"ridged"` (sharp inward crevices). Reuses the `fbm_*` octave/lacunarity/gain params. |
 | `noise_seed`     | `1`       | Seed for the geometry noise; change for a different cave.   |
+| `cave_type`      | `"cylinder"` | `"cylinder"` (radial-noise cylinder) or `"nurbs"` (lofted irregular tube). See below. |
 
 Tip: if you re-tune `cave_radius` and want the noise pattern to look the same, scale `fbm_base_freq` inversely (e.g. doubling radius → halve frequency).
+
+### NURBS cave (`cave_type = "nurbs"`)
+
+An irregular tube lofted from jittered cross-section rings, sampled and displaced
+with the same `fbm_*` / `noise_type` noise. The base surface is kept as editable
+document geometry on the `Pearlscape::CaveSurface` layer.
+
+| Parameter                  | Default     | Meaning                                                            |
+|----------------------------|-------------|--------------------------------------------------------------------|
+| `nurbs_surface_source`     | `"rebuild"` | `"rebuild"` lofts from the params below; `"reuse"` samples the (hand-edited) surface on the `CaveSurface` layer (falls back to rebuild if none). |
+| `nurbs_sections`           | `8`         | Cross-section rings along X.                                       |
+| `nurbs_section_points`     | `12`        | Control points per ring (minimum 4).                               |
+| `nurbs_radius_jitter`      | `0.35`      | Per-point radius variation, fraction of `cave_radius`.             |
+| `nurbs_radius_jitter_freq` | `0.0006`    | Noise frequency for radius jitter (cycles/mm).                     |
+| `nurbs_centerline_amp`     | `400.0`     | Centerline meander amplitude (mm, Y/Z only).                       |
+| `nurbs_centerline_freq`    | `0.0003`    | Noise frequency for centerline meander (cycles/mm).               |
+| `nurbs_shape_seed`         | `7`         | Seed for the shape noise (independent of `noise_seed`).            |
+| `nurbs_grid_u` / `nurbs_grid_v` | `180` / `180` | Surface-eval grid resolution (X / θ). Raise for finer base form. |
+
+To hand-edit: run once in `"rebuild"`, then `_PointsOn` the surface, move points,
+`_PointsOff`, switch to `"reuse"`, and re-run to resample from your edited form.
 
 ### Curtain array
 

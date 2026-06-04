@@ -28,7 +28,7 @@ class PearlscapeParams:
     cave_radius: float = 1200.0
     cave_length: float = 2000.0
 
-    fbm_amplitude: float = 950.0
+    fbm_amplitude: float = 900.0
     fbm_base_freq: float = 0.00035
     fbm_octaves: int = 6
     fbm_lacunarity: float = 2.0
@@ -43,12 +43,12 @@ class PearlscapeParams:
     # --- Cave geometry (NURBS, used when cave_type == "nurbs") ---
     # "cylinder" -> CylinderFBMCave (radial noise on a cylinder).
     # "nurbs"    -> NurbsLoftCave (lofted irregular tube, sampled + displaced).
-    cave_type: str = "cylinder"
+    cave_type: str = "nurbs"
     # "rebuild" -> loft from the nurbs_* params each run (replaces the surface
     #              on the Pearlscape::CaveSurface layer).
     # "reuse"   -> sample the existing (possibly hand-edited) surface on that
     #              layer; falls back to "rebuild" with a warning if none found.
-    nurbs_surface_source: str = "rebuild"
+    nurbs_surface_source: str = "reuse"
     nurbs_sections: int = 8            # K: cross-section rings along X
     nurbs_section_points: int = 12     # P: control points per ring
     nurbs_radius_jitter: float = 0.35  # per-point radius variation, fraction of cave_radius
@@ -67,7 +67,7 @@ class PearlscapeParams:
     cave_center_z: float = 1500.0   # cave centerline elevation
 
     # --- Beads ---
-    total_surface_samples: int = 60_000
+    total_surface_samples: int = 300_000
     bead_diameter: float = 6.0   # mm
 
     # --- Color ---
