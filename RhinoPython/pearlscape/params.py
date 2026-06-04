@@ -13,12 +13,10 @@ RGB = Tuple[int, int, int]
 
 def _default_palette() -> List[RGB]:
     return [
-        (180,  40,  40),   # red
-        (220, 130,  50),   # orange
-        (230, 200,  70),   # yellow
-        ( 80, 160,  90),   # green
-        ( 60, 110, 180),   # blue
-        (130,  70, 170),   # violet
+        ( 255, 255,   0),   # yellow
+        ( 255,   0, 255),   # magenta
+        (   0, 255,   0),   # green
+        ( 255, 255,   0),   # yellow
     ]
 
 
@@ -72,11 +70,14 @@ class PearlscapeParams:
 
     # --- Color ---
     palette: List[RGB] = field(default_factory=_default_palette)
-    color_base_freq: float = 0.0006   # cycles per mm
+    color_base_freq: float = 0.0015   # cycles per mm
     color_fbm_octaves: int = 2
     color_fbm_lacunarity: float = 2.0
     color_fbm_gain: float = 0.5
     color_noise_seed: int = 42
+    # Softens palette boundaries by stochastic dithering. Width of the per-bead
+    # nudge in palette-step units: 0 = sharp, 1 = a one-step fuzzy band, >1 wider.
+    color_dither: float = 1.0
 
     # --- Pipeline / display / export ---
     # pipeline_mode controls how much of the pipeline runs:
@@ -108,4 +109,5 @@ class PearlscapeParams:
         assert self.nurbs_section_points >= 4   # periodic degree-3 ring needs >= 4 pts
         assert 0.0 <= self.nurbs_radius_jitter < 1.0
         assert self.nurbs_grid_u >= 2 and self.nurbs_grid_v >= 3
+        assert self.color_dither >= 0.0
         assert len(self.palette) >= 2

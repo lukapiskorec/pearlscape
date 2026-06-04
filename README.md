@@ -115,6 +115,7 @@ Bridson's Poisson-disk sampler tends to undershoot by ~30–40%, so the actual b
 | `color_fbm_lacunarity`| `2.0`     | Per-octave frequency multiplier (same as geometry).                      |
 | `color_fbm_gain`      | `0.5`     | Per-octave amplitude multiplier (same as geometry).                      |
 | `color_noise_seed`    | `42`      | Independent of `noise_seed`; change for a different colour distribution. |
+| `color_dither`        | `1.0`     | Fuzziness of palette boundaries, in palette-step units. `0` = razor-sharp regions; `1` = a one-step dithered band where neighbouring colours mix; `>1` softer/wider. Stochastic per bead, deterministic per run. |
 
 The colour noise is sampled at each bead's *original 3D position* (not its projected curtain position), so colour blobs stay spatially coherent across neighbouring curtains.
 

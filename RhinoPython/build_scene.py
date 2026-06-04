@@ -49,6 +49,7 @@ def main() -> None:
             lacunarity=params.color_fbm_lacunarity,
             gain=params.color_fbm_gain,
             seed=params.color_noise_seed,
+            dither=params.color_dither,
         )
         print(f"Colors assigned in {time.time()-t0:.2f}s")
         if params.display_mode == "sprites":
