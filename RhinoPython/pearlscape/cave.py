@@ -123,8 +123,17 @@ class CylinderFBMCave:
         return pts
 
 
-def make_default_cave(params) -> CylinderFBMCave:
-    """Build a CylinderFBMCave from a PearlscapeParams instance."""
+def make_default_cave(params):
+    """Build the cave selected by params.cave_type.
+
+    "cylinder" -> CylinderFBMCave (pure numpy, Rhino-free).
+    "nurbs"    -> NurbsLoftCave (imported lazily; needs Rhino for the loft).
+    """
+    if params.cave_type == "nurbs":
+        # Lazy import so the cylinder path stays importable outside Rhino.
+        from pearlscape.nurbs_cave import make_nurbs_cave
+        return make_nurbs_cave(params)
+
     return CylinderFBMCave(
         radius=params.cave_radius,
         length=params.cave_length,
