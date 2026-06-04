@@ -108,6 +108,42 @@ def bridson_torus(
     return np.array(points, dtype=np.float64)
 
 
+def jittered_grid(
+    width: float,
+    wrap: float,
+    target_n: int,
+    *,
+    seed: int = 0,
+) -> np.ndarray:
+    """Stratified jittered sampling of a 2D domain [0, wrap) x [0, width).
+
+    One point per grid cell, uniformly jittered within the cell. Vectorized —
+    sub-second for ~1M points. Columns are (wrap_axis, width_axis), matching
+    bridson_torus, so callers can swap samplers freely. The wrap axis is treated
+    as periodic only implicitly (cells tile it exactly); no wrap arithmetic is
+    needed because points never need neighbour queries.
+
+    The cell count is chosen to make cells ~square and the total ~target_n.
+    """
+    if target_n <= 0:
+        return np.empty((0, 2), dtype=np.float64)
+    area = max(width, 1e-9) * max(wrap, 1e-9)
+    cell = math.sqrt(area / target_n)
+    ncols = max(1, int(round(wrap / cell)))    # along the wrap axis
+    nrows = max(1, int(round(width / cell)))   # along the width axis
+    cw = wrap / ncols
+    ch = width / nrows
+
+    rng = np.random.default_rng(seed)
+    cols, rows = np.meshgrid(np.arange(ncols), np.arange(nrows), indexing="xy")
+    cols = cols.ravel()
+    rows = rows.ravel()
+    n = cols.size
+    wrap_coord = cols * cw + rng.uniform(0.0, cw, size=n)
+    width_coord = rows * ch + rng.uniform(0.0, ch, size=n)
+    return np.column_stack([wrap_coord, width_coord])
+
+
 if __name__ == "__main__":
     # Smoke test: sample a 2*pi*1.2 x 5.0 domain for ~60k points.
     radius = 1.2
@@ -123,3 +159,13 @@ if __name__ == "__main__":
     print(f"Generated {len(pts)} points in {dt:.2f}s")
     print(f"theta_arc range: [{pts[:,0].min():.3f}, {pts[:,0].max():.3f}] (wrap = {wrap:.3f})")
     print(f"x range:         [{pts[:,1].min():.3f}, {pts[:,1].max():.3f}] (length = {length:.3f})")
+
+    print("\n--- jittered_grid ---")
+    jpts = jittered_grid(width=length, wrap=wrap, target_n=target, seed=0)
+    print(f"Requested {target}, got {len(jpts)} "
+          f"(within 15%: {abs(len(jpts) - target) < 0.15 * target})")
+    assert jpts[:, 0].min() >= 0.0 and jpts[:, 0].max() < wrap + 1e-6
+    assert jpts[:, 1].min() >= 0.0 and jpts[:, 1].max() < length + 1e-6
+    jpts2 = jittered_grid(width=length, wrap=wrap, target_n=target, seed=0)
+    print("Deterministic:", bool(np.array_equal(jpts, jpts2)))
+    print("In-domain + count OK")
