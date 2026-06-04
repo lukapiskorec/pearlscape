@@ -96,3 +96,13 @@ ALL: Dict[str, List[RGB]] = {
     "aurora": AURORA,
     "wildflower": WILDFLOWER,
 }
+
+
+def name_of(palette) -> str:
+    """Return a display name for `palette` if it matches a known constant in ALL,
+    else 'custom'. Compares by RGB values, order-sensitive."""
+    target = [tuple(int(v) for v in c) for c in palette]
+    for key, pal in ALL.items():
+        if [tuple(int(v) for v in c) for c in pal] == target:
+            return key.replace("_", " ").title()
+    return "custom"

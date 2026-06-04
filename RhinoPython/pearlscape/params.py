@@ -38,7 +38,7 @@ class PearlscapeParams:
     # craggy crevices). Reuses the fbm_* octave/lacunarity/gain params above.
     noise_type: str = "ridged"
 
-    noise_seed: int = 1
+    noise_seed: int = 3
 
     # --- Cave geometry (NURBS, used when cave_type == "nurbs") ---
     # "cylinder" -> CylinderFBMCave (radial noise on a cylinder).
@@ -60,8 +60,8 @@ class PearlscapeParams:
     nurbs_grid_v: int = 180            # surface-eval grid divisions around theta
 
     # --- Curtain array (mm) ---
-    curtain_count: int = 25
-    curtain_spacing: float = 200.0
+    curtain_count: int = 50
+    curtain_spacing: float = 100.0
     curtain_width: float = 2500.0
     curtain_height: float = 3000.0
     cave_center_z: float = 1500.0   # cave centerline elevation
@@ -71,7 +71,7 @@ class PearlscapeParams:
     bead_diameter: float = 6.0   # mm
 
     # --- Color ---
-    palette: List[RGB] = field(default_factory=lambda: list(palettes.OCEAN_BLUE))
+    palette: List[RGB] = field(default_factory=lambda: list(palettes.WILDFLOWER))
     color_base_freq: float = 0.0015   # cycles per mm
     color_fbm_octaves: int = 2
     color_fbm_lacunarity: float = 2.0
@@ -86,7 +86,7 @@ class PearlscapeParams:
     #   "cave"     -> raw cave point cloud only (fastest; tune geometry)
     #   "curtains" -> cave is sliced into curtains and coloured (no PDF I/O)
     #   "export"   -> curtains + per-curtain layouts + PDFs (full pipeline)
-    pipeline_mode: str = "cave"
+    pipeline_mode: str = "curtains"
     display_mode: str = "sprites"   # "pointcloud" | "instances" | "sprites"
     instance_sphere_subd: int = 2
     pdf_page_size: str = "A1"
