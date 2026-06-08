@@ -88,7 +88,7 @@ To hand-edit: run once in `"rebuild"`, then `_PointsOn` the surface, move points
 
 | Parameter         | Default   | Meaning                                                                |
 |-------------------|-----------|------------------------------------------------------------------------|
-| `curtain_count`   | `25`      | Number of curtain planes.                                              |
+| `curtain_count`   | `25`      | Number of curtain planes. **Ignored in `"nurbs"` mode** — there the count is derived from the surface's X extent and `curtain_spacing`. Used only in `"cylinder"` mode. |
 | `curtain_spacing` | `200.0`   | Spacing between adjacent curtains along X (mm).                        |
 | `curtain_width`   | `2500.0`  | Curtain width along Y (mm).                                            |
 | `curtain_height`  | `3000.0`  | Curtain height along Z (mm); ceiling at Z=3000, floor at Z=0.          |
@@ -98,7 +98,7 @@ To hand-edit: run once in `"rebuild"`, then `_PointsOn` the surface, move points
 | `bead_min_spacing`       | `6.0`     | In-plane blue-noise spacing (mm). Must be ≥ `bead_diameter`. |
 | `target_bead_count`      | `0`       | When > 0, auto-solves `bead_min_spacing` each run so the total bead count lands near this target (given the live band shape + cave geometry). `0` uses `bead_min_spacing` as set above. The solved spacing is printed to the console. |
 
-Note: `curtain_count × curtain_spacing` should be ≥ `cave_length` to capture every bead. The defaults give 25 × 200 = 5000 mm, exactly matching `cave_length`.
+Note: the curtain array is fitted to the cave's **actual X extent**. In `"nurbs"` mode the plane count is derived so curtains span the surface exactly (every `curtain_spacing` mm); `curtain_count` is ignored. In `"cylinder"` mode `curtain_count` planes are placed, centered on the cave. In both modes any plane falling outside the cave's X extent is dropped (and logged), so the curtain geometry never extends past the surface.
 
 ### Beads
 

@@ -60,6 +60,9 @@ class PearlscapeParams:
     nurbs_grid_v: int = 180            # surface-eval grid divisions around theta
 
     # --- Curtain array (mm) ---
+    # In "nurbs" mode curtain_count is IGNORED: the plane count is derived from
+    # the surface's actual X extent and curtain_spacing, so curtains fit the cave
+    # exactly. It is used only in "cylinder" mode.
     curtain_count: int = 100
     curtain_spacing: float = 50.0
     curtain_width: float = 2500.0

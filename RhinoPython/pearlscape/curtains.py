@@ -30,6 +30,38 @@ def array_x_center(cave_length: float) -> float:
     return cave_length / 2.0
 
 
+def curtain_planes(cave, params) -> np.ndarray:
+    """Curtain plane X positions, fitted to the cave's actual X extent.
+
+    In ``"nurbs"`` mode the plane count is DERIVED from the surface's X extent and
+    ``curtain_spacing`` (``curtain_count`` is ignored), so curtains span the cave
+    exactly and never hang off the ends. In ``"cylinder"`` mode the explicit
+    ``curtain_count`` is kept, centered on the cave. In both modes any plane that
+    falls outside the cave's X extent is dropped (and the drop is logged), so the
+    curtain geometry can never extend past the actual surface.
+    """
+    x_min, x_max = cave.x_extent()
+    spacing = params.curtain_spacing
+
+    if params.cave_type == "nurbs":
+        length = x_max - x_min
+        gaps = int(np.floor(length / spacing + 1e-9))   # spacing intervals that fit
+        count = max(1, gaps + 1)
+        span = gaps * spacing
+        x0 = x_min + (length - span) / 2.0              # center the planes in the extent
+        plane_xs = x0 + np.arange(count) * spacing
+    else:
+        x_center = 0.5 * (x_min + x_max)
+        plane_xs = curtain_x_positions(params.curtain_count, spacing, x_center)
+
+    inside = (plane_xs >= x_min - 1e-6) & (plane_xs <= x_max + 1e-6)
+    dropped = int((~inside).sum())
+    if dropped:
+        print(f"Curtains: dropped {dropped} plane(s) outside the cave X extent "
+              f"[{x_min:.0f}, {x_max:.0f}] mm.")
+    return plane_xs[inside]
+
+
 def _resolve_bead_spacing(boundaries: Sequence[tuple], params) -> float:
     """Pick the in-plane bead spacing.
 
@@ -53,9 +85,15 @@ def _resolve_bead_spacing(boundaries: Sequence[tuple], params) -> float:
     s = math.sqrt(total_area * keep / params.target_bead_count)
     s_clamped = max(s, params.bead_diameter)
     if s_clamped > s + 1e-9:
+        # Clamping the spacing UP (to the bead_diameter floor) means fewer beads,
+        # so the count falls SHORT of the target — the cave's band can't hold that
+        # many beads without overlapping them.
+        est = int(round(total_area * keep / (s_clamped * s_clamped)))
         print(f"Bead budget: target {params.target_bead_count:,} needs spacing "
-              f"{s:.2f}mm < bead_diameter {params.bead_diameter:g}; clamped to "
-              f"{s_clamped:.2f}mm (count will exceed target).")
+              f"{s:.2f}mm < bead_diameter {params.bead_diameter:g} (the tightest "
+              f"valid packing); clamped to {s_clamped:.2f}mm, so the count falls "
+              f"short (~{est:,}). Raise curtain_band_thickness, lower "
+              f"curtain_spacing, or reduce bead_diameter to fit more.")
     else:
         print(f"Bead budget: target {params.target_bead_count:,} -> "
               f"bead_min_spacing {s_clamped:.2f}mm.")
@@ -115,6 +153,7 @@ if __name__ == "__main__":
     from pearlscape.params import PearlscapeParams
 
     params = PearlscapeParams()   # uses default band params (120 / 1.5 / 6)
+    params.target_bead_count = 0  # test the plain bead_min_spacing path here
     cave = CylinderFBMCave(
         radius=params.cave_radius, length=2000.0, fbm_amplitude=900.0,
         fbm_base_freq=0.00035, fbm_octaves=6, fbm_lacunarity=2.0, fbm_gain=0.55,
@@ -150,6 +189,20 @@ if __name__ == "__main__":
     )
     assert no_clash, "two curtains produced identical bead patterns (seed not varying)"
 
+    # curtain_planes: nurbs derives the count from the X extent; cylinder keeps
+    # curtain_count; both drop planes outside the cave (extent here is [0, 2000]).
+    geom = PearlscapeParams()
+    geom.curtain_spacing = 50.0
+    geom.cave_type = "nurbs"
+    pn = curtain_planes(cave, geom)
+    assert len(pn) == 41, len(pn)                      # 2000/50 gaps + 1, spanning [0, 2000]
+    assert pn.min() >= -1e-6 and pn.max() <= 2000.0 + 1e-6, (pn.min(), pn.max())
+    geom.cave_type = "cylinder"
+    geom.curtain_count = 100
+    pc = curtain_planes(cave, geom)
+    assert len(pc) == 40, len(pc)                      # 60 of 100 fall outside [0, 2000]
+    assert pc.min() >= -1e-6 and pc.max() <= 2000.0 + 1e-6
+
     # Bead budget: with target_bead_count set, the total lands near the target.
     budget = PearlscapeParams()
     budget.target_bead_count = 20_000
@@ -160,5 +213,6 @@ if __name__ == "__main__":
     assert rel < 0.10, f"budget off: got {total_b}, target {budget.target_bead_count} ({rel:.1%})"
 
     print(f"5 curtains, {total} beads, deterministic, seeds distinct")
+    print(f"curtain_planes: nurbs->{len(pn)} planes, cylinder->{len(pc)} (filtered)")
     print(f"bead budget: target 20,000 -> {total_b} beads ({rel:.1%} off)")
     print("OK")

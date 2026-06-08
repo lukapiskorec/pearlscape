@@ -40,6 +40,10 @@ class CaveSurface(Protocol):
         theta is sorted ascending in [0, 2*pi); r_inner is measured from centroid_yz."""
         ...
 
+    def x_extent(self):
+        """Return (x_min, x_max): the cave's extent along X (the curtain axis)."""
+        ...
+
 
 class CylinderFBMCave:
     """A cylinder along X, with surface points blue-noise-sampled and
@@ -156,6 +160,10 @@ class CylinderFBMCave:
         return displaced_ring_boundary(
             base_xyz, normals, n01, fbm_amplitude=self.fbm_amplitude,
         )
+
+    def x_extent(self):
+        """The cylinder runs from X = 0 to X = length."""
+        return (0.0, float(self.length))
 
 
 def make_default_cave(params):

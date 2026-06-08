@@ -131,6 +131,13 @@ class NurbsLoftCave:
             self._normals = surface_sampling.grid_normals(self._grid)
         return self._grid, self._normals
 
+    def x_extent(self):
+        """(x_min, x_max) of the actual lofted surface along X, from the cached
+        grid — so it reflects a hand-edited 'reuse' surface, not a nominal length."""
+        grid, _ = self._ensure_grid()
+        xs = grid[:, :, 0]
+        return (float(xs.min()), float(xs.max()))
+
     def sample_surface_points(self) -> np.ndarray:
         p = self.params
         grid = eval_surface_grid(self.surface, p.nurbs_grid_u, p.nurbs_grid_v)
