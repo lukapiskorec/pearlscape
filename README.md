@@ -18,7 +18,7 @@ Parametric Rhino Python pipeline for the *Pearlscape* installation — a series 
 
 The script regenerates the scene from scratch on every run. For the cleanest results, start in a fresh Rhino document each time — successive runs into the same document accumulate geometry and layouts.
 
-## The three pipeline modes
+## Pipeline modes
 
 Edit `pipeline_mode` in `RhinoPython/pearlscape/params.py` to control how much of the pipeline runs.
 
@@ -27,8 +27,9 @@ Edit `pipeline_mode` in `RhinoPython/pearlscape/params.py` to control how much o
 | `"cave"`        | One unsliced, palette-coloured cave point cloud on the `Pearlscape::CaveReference` layer.        | Fastest          | Tuning the cave's geometry, noise, or colour field.        |
 | `"curtains"`    | Cave cross-section is taken at 25 curtain planes; each plane's beads are sampled in-plane, outward from the cross-section curve.                    | Medium           | Tuning curtain spacing, colour palette, or display mode.   |
 | `"export"`      | Curtain model **plus** 25 A1 layout pages, one PDF per curtain in `exports/`.                    | Slowest          | Producing fabrication output, or final preflight.          |
+| `"export_ply"`  | Curtain model **plus** a single binary `.ply` point cloud (all beads) for the web viewer.        | Medium           | Previewing the whole model in the browser (see below).     |
 
-Each mode is a strict superset of the one above it.
+`"cave"` ⊂ `"curtains"` ⊂ `"export"`. `"export_ply"` is a parallel branch off `"curtains"`: it builds the same curtain model, renders it to the viewport, then writes the PLY — it works with any `display_mode` (it writes a file, so the screen-only `"sprites"` mode is fine here).
 
 ## The `display_mode` toggle
 
@@ -129,11 +130,61 @@ The colour noise is sampled at each bead's *original 3D position* (not its proje
 
 | Parameter              | Default        | Meaning                                                                |
 |------------------------|----------------|------------------------------------------------------------------------|
-| `pipeline_mode`        | `"export"`     | `"cave"` / `"curtains"` / `"export"`. See the modes table above.       |
+| `pipeline_mode`        | `"export"`     | `"cave"` / `"curtains"` / `"export"` / `"export_ply"`. See the modes table above. |
 | `display_mode`         | `"pointcloud"` | `"pointcloud"` / `"instances"` / `"sprites"`. See the display table above. |
 | `instance_sphere_subd` | `2`            | Mesh density for instance-mode bead spheres.                           |
 | `pdf_page_size`        | `"A1"`         | One of `"A4"`, `"A3"`, `"A2"`, `"A1"`, `"A0"`.                         |
 | `pdf_output_dir`       | `"exports"`    | Output directory relative to `RhinoPython/` (gitignored).              |
+| `ply_output_path`      | `"web/data/pearlscape.ply"` | PLY output path for `"export_ply"`, relative to the repo root. `web/data/` is gitignored. |
+
+## Web viewer (Pearlscape Explorer)
+
+A bare-bones browser app (`web/`) previews the whole bead model with the same
+glass-bead sprites used in Rhino. It loads a `.ply` point cloud and draws every
+bead as a screen-aligned GPU point sprite in a single draw call, so it stays
+interactive at ~500k beads. No build step — it's plain three.js loaded from a CDN.
+
+### Exporting a PLY from Rhino
+
+1. Open Rhino 8 in a fresh document with units set to **millimetres**.
+2. In `RhinoPython/pearlscape/params.py`, set `pipeline_mode = "export_ply"`.
+   `display_mode` can be anything (`"sprites"` is fine). Optionally set
+   `target_bead_count` (e.g. `500_000`) and pick a `palette`.
+3. Run `_ScriptEditor`, open `RhinoPython/build_scene.py`, press **F5**.
+4. The run builds the curtain model, renders it to the viewport, then writes two
+   files (paths relative to the repo root, both under the gitignored `web/data/`):
+   - `web/data/pearlscape.ply` — the bead cloud. Each bead carries its position,
+     a baked RGB colour (the current `palette`), and two extra values (the colour
+     field + a dither seed) that let the viewer re-colour with any palette. The
+     console prints the bead count and file size.
+   - `web/data/palettes.json` — every palette from `palettes.py`, so the viewer's
+     palette dropdown stays in sync with the project.
+
+The `.ply` is a standard binary little-endian point cloud, so it also opens in
+MeshLab, CloudCompare, Blender, etc. — they'll show the baked RGB colours.
+
+### Running the viewer
+
+From the repo's `web/` directory, start any static server and open the page
+(ES modules + the CDN won't load over `file://`):
+
+```
+cd web
+python -m http.server 8000
+```
+
+Then open <http://localhost:8000/>. It auto-loads `data/pearlscape.ply` if present.
+
+### Controls
+
+- **Orbit / zoom / pan** — left-drag / scroll / right-drag (the camera is Z-up to
+  match Rhino).
+- **Load .ply** — pick a file, or drag a `.ply` anywhere onto the window.
+- **Palette** — switch between all palettes from `palettes.py` live (instant; the
+  recolour happens on the GPU). Enabled only for clouds exported by this project
+  (a plain PLY without the colour-field data shows its baked RGB instead).
+- **Bead size (mm)** — scales the world-space bead diameter (seeded from the PLY).
+- **Screenshot** — downloads a PNG of the model view (no HUD).
 
 ## Project layout
 
@@ -154,7 +205,14 @@ pearlscape/
 │       ├── curtains.py                      # slab assignment + projection
 │       ├── color.py                         # palette-quantised FBM colour
 │       ├── display.py                       # PointCloud and instanced-mesh renderers
-│       └── export.py                        # per-curtain layouts + PDF export
+│       ├── export.py                        # per-curtain layouts + PDF export
+│       └── ply_export.py                    # binary PLY point-cloud export
+├── web/                                     # browser viewer (Pearlscape Explorer)
+│   ├── index.html                           # HUD + three.js importmap
+│   ├── main.js                              # scene, loader, render loop
+│   ├── plyparse.js                          # binary PLY reader
+│   ├── beads.glsl.js                        # bead point-sprite shaders
+│   └── data/                                # exported .ply + palettes.json (gitignored)
 └── docs/
     └── superpowers/
         ├── specs/2026-06-02-pearlscape-design.md

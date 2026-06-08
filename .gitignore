@@ -8,6 +8,7 @@ build/
 
 # Pearlscape exports
 RhinoPython/exports/
+web/data/
 
 # Environment variables
 .env

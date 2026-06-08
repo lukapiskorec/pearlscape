@@ -2,6 +2,7 @@
 # r: numpy
 """Top-level entry point. Run this from Rhino's Script Editor (F5)."""
 
+import json
 import os
 import sys
 
@@ -25,7 +26,30 @@ from pearlscape.curtains import build_curtains, curtain_planes
 from pearlscape import color as color_mod
 from pearlscape import display
 from pearlscape import export as export_mod
+from pearlscape import ply_export
 from pearlscape import palettes
+
+
+def _write_palettes_json(path: str, params) -> None:
+    """Write every named palette from palettes.py (plus the live one, if custom)
+    to a JSON the web viewer loads into its palette dropdown. The entry matching
+    params.palette is flagged as the default."""
+    entries = [
+        {"name": key.replace("_", " ").title(),
+         "colors": [list(int(v) for v in c) for c in pal]}
+        for key, pal in palettes.ALL.items()
+    ]
+    default_name = palettes.name_of(params.palette)
+    if default_name == "custom":
+        # The live palette isn't one of the named constants; expose it too.
+        entries.insert(0, {
+            "name": "Custom (current)",
+            "colors": [list(int(v) for v in c) for c in params.palette],
+        })
+        default_name = "Custom (current)"
+    data = {"default": default_name, "palettes": entries}
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
 
 
 def print_run_summary(beads: np.ndarray, params, n_curtains: int, bead_spacing: float) -> None:
@@ -156,14 +180,58 @@ def main() -> None:
         pdf_paths = export_mod.export_all_pdfs(out_dir)
         print(f"Exported {len(pdf_paths)} PDFs to {out_dir} in {time.time()-t0:.2f}s")
 
-    # Summary (final output): measure the in-plane bead positions from cross-section
-    # sampling, not the raw surface cloud.
+    # Combined bead positions/colours across all curtains, used for the summary
+    # and (in export_ply mode) the PLY file.
     if total:
-        beads = np.vstack([
-            display._projected_points(c) for c in curtains if len(c["points_2d"])
-        ])
+        populated = [c for c in curtains if len(c["points_2d"])]
+        beads = np.vstack([display._projected_points(c) for c in populated])
+        have_colors = all(c.get("colors") is not None for c in populated)
+        bead_colors = np.vstack([c["colors"] for c in populated]) if have_colors else None
     else:
         beads = np.zeros((0, 3))
+        bead_colors = None
+
+    if params.pipeline_mode == "export_ply":
+        # Per-bead colour field + dither source, so the web viewer can re-quantize
+        # against any palette without re-running the noise. Computed from the same
+        # points_3d and seeding as the baked colours, so they stay consistent.
+        if total:
+            field = np.concatenate([
+                color_mod.color_field(
+                    c["points_3d"], base_freq=params.color_base_freq,
+                    octaves=params.color_fbm_octaves,
+                    lacunarity=params.color_fbm_lacunarity,
+                    gain=params.color_fbm_gain, seed=params.color_noise_seed,
+                ) for c in populated
+            ])
+            dither_rand = np.concatenate([
+                color_mod.dither_randoms(c["points_3d"].shape[0], params.color_noise_seed)
+                for c in populated
+            ])
+        else:
+            field = np.zeros((0,))
+            dither_rand = np.zeros((0,))
+
+        # Path is relative to the repo root (parent of RhinoPython/).
+        repo_root = os.path.dirname(_HERE)
+        out_path = os.path.join(repo_root, params.ply_output_path)
+        t0 = time.time()
+        ply_export.write_ply(
+            out_path, beads, bead_colors, params.bead_diameter,
+            field=field, dither_rand=dither_rand, color_dither=params.color_dither,
+        )
+        size_mb = os.path.getsize(out_path) / (1024.0 * 1024.0)
+        print(f"Wrote {beads.shape[0]:,} beads to {out_path} "
+              f"({size_mb:.1f} MB) in {time.time()-t0:.2f}s")
+
+        # Ship all named palettes (palettes.py is the source of truth) next to the
+        # PLY so the viewer's dropdown stays in sync with the project.
+        palettes_path = os.path.join(os.path.dirname(out_path), "palettes.json")
+        _write_palettes_json(palettes_path, params)
+        print(f"Wrote palette list to {palettes_path}")
+
+    # Summary (final output): measure the in-plane bead positions from cross-section
+    # sampling, not the raw surface cloud.
     print_run_summary(beads, params, len(plane_xs), bead_spacing)
 
 

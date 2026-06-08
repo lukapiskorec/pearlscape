@@ -100,14 +100,20 @@ class PearlscapeParams:
 
     # --- Pipeline / display / export ---
     # pipeline_mode controls how much of the pipeline runs:
-    #   "cave"     -> raw cave point cloud only (fastest; tune geometry)
-    #   "curtains" -> cave is sliced into curtains and coloured (no PDF I/O)
-    #   "export"   -> curtains + per-curtain layouts + PDFs (full pipeline)
-    pipeline_mode: str = "curtains"
+    #   "cave"       -> raw cave point cloud only (fastest; tune geometry)
+    #   "curtains"   -> cave is sliced into curtains and coloured (no PDF I/O)
+    #   "export"     -> curtains + per-curtain layouts + PDFs (full pipeline)
+    #   "export_ply" -> curtains + a single binary PLY of all beads (for the
+    #                   web viewer); also renders to the viewport. Works with
+    #                   any display_mode.
+    pipeline_mode: str = "export_ply"
     display_mode: str = "sprites"   # "pointcloud" | "instances" | "sprites"
     instance_sphere_subd: int = 2
     pdf_page_size: str = "A1"
     pdf_output_dir: str = "exports"
+    # PLY output path for pipeline_mode="export_ply" (relative to the repo root,
+    # i.e. the parent of RhinoPython/). web/data/ is gitignored.
+    ply_output_path: str = "web/data/pearlscape.ply"
 
     def validate(self) -> None:
         assert self.fbm_amplitude < self.cave_radius, (
@@ -116,7 +122,7 @@ class PearlscapeParams:
         )
         assert self.curtain_count >= 2
         assert self.noise_type in ("fbm", "ridged")
-        assert self.pipeline_mode in ("cave", "curtains", "export")
+        assert self.pipeline_mode in ("cave", "curtains", "export", "export_ply")
         assert self.display_mode in ("pointcloud", "instances", "sprites")
         assert not (self.display_mode == "sprites" and self.pipeline_mode == "export"), (
             "display_mode='sprites' is screen-only and cannot drive PDF export; "

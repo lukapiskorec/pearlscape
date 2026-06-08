@@ -11,6 +11,56 @@ import numpy as np
 from .noise import fbm3_01, make_perm
 
 
+def color_field(
+    points_3d: np.ndarray,
+    *,
+    base_freq: float,
+    octaves: int,
+    lacunarity: float,
+    gain: float,
+    seed: int,
+) -> np.ndarray:
+    """Return the [0, 1) FBM colour-field value per point (pre-quantization).
+
+    This is the palette-independent scalar the colour quantizer bins. Exporting
+    it per bead lets a downstream viewer re-quantize against any palette without
+    re-running the noise.
+    """
+    if points_3d.shape[0] == 0:
+        return np.zeros((0,), dtype=np.float64)
+    perm = make_perm(seed)
+    n01 = fbm3_01(
+        points_3d * base_freq, perm,
+        octaves=octaves, lacunarity=lacunarity, gain=gain,
+    )
+    # Clamp into [0, 1) defensively; FBM normalization is approximate.
+    return np.clip(n01, 0.0, 0.999999)
+
+
+def dither_randoms(n: int, seed: int) -> np.ndarray:
+    """Per-bead uniform [0, 1) dither source. Independent of the FBM perm so the
+    dither doesn't track the field; deterministic per `seed`."""
+    return np.random.default_rng(seed + 1).random(n)
+
+
+def quantize(
+    n01: np.ndarray,
+    dither_rand: np.ndarray,
+    palette: Sequence,
+    dither: float,
+) -> np.ndarray:
+    """Map field values to palette colours. `dither` (palette-step units) nudges
+    each bin coordinate by `dither_rand` so boundaries soften; `dither=0` is hard
+    quantization and `dither_rand` is ignored."""
+    m = len(palette)
+    t = n01 * m   # continuous bin coordinate in [0, m)
+    if dither > 0.0:
+        t = t + dither * (dither_rand - 0.5)
+    idx = np.clip(np.floor(t), 0, m - 1).astype(np.int64)
+    palette_arr = np.array(palette, dtype=np.uint8)   # (M, 3)
+    return palette_arr[idx]
+
+
 def assign_colors(
     points_3d: np.ndarray,
     *,
@@ -32,22 +82,12 @@ def assign_colors(
     """
     if points_3d.shape[0] == 0:
         return np.zeros((0, 3), dtype=np.uint8)
-    perm = make_perm(seed)
-    n01 = fbm3_01(
-        points_3d * base_freq, perm,
-        octaves=octaves, lacunarity=lacunarity, gain=gain,
+    n01 = color_field(
+        points_3d, base_freq=base_freq, octaves=octaves,
+        lacunarity=lacunarity, gain=gain, seed=seed,
     )
-    # Clamp into [0, 1) defensively; FBM normalization is approximate.
-    n01 = np.clip(n01, 0.0, 0.999999)
-    m = len(palette)
-    t = n01 * m   # continuous bin coordinate in [0, m)
-    if dither > 0.0:
-        # Independent of the FBM perm (seed) so the dither doesn't track the field.
-        rng = np.random.default_rng(seed + 1)
-        t = t + dither * (rng.random(t.shape[0]) - 0.5)
-    idx = np.clip(np.floor(t), 0, m - 1).astype(np.int64)
-    palette_arr = np.array(palette, dtype=np.uint8)   # (M, 3)
-    return palette_arr[idx]
+    dr = dither_randoms(n01.shape[0], seed) if dither > 0.0 else None
+    return quantize(n01, dr, palette, dither)
 
 
 def apply_to_curtains(curtains: List[dict], params) -> None:

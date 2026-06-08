@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pearlscape Explorer</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden;
+        font-family: system-ui, sans-serif; background: #111317; color: #e6e6e6; }
+      #view { display: block; width: 100vw; height: 100vh; }
+      #hud {
+        position: fixed; top: 12px; left: 12px; padding: 12px 14px;
+        background: rgba(20, 22, 26, 0.82); border: 1px solid #2a2e35;
+        border-radius: 8px; backdrop-filter: blur(6px); width: 240px;
+        font-size: 13px; line-height: 1.5;
+      }
+      #hud-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      #hud h1 { font-size: 13px; margin: 0; letter-spacing: 0.04em;
+        text-transform: uppercase; color: #c8ccd2; font-weight: 600; }
+      #hud #toggle { width: 22px; height: 22px; flex: none; margin: 0; padding: 0;
+        line-height: 1; font-size: 16px; cursor: pointer; color: #c8ccd2;
+        background: transparent; border: 1px solid #2a2e35; border-radius: 4px; }
+      #hud #toggle:hover { background: #1d2027; }
+      #hud.collapsed { width: auto; }
+      #hud.collapsed #hud-body { display: none; }
+      #hud-body { margin-top: 8px; }
+      #hud label { display: block; margin: 8px 0 2px; color: #9aa0a6; font-size: 12px; }
+      #hud input[type="file"] { width: 100%; font-size: 12px; }
+      #hud input[type="range"] { width: 100%; }
+      #hud select { width: 100%; font-size: 12px; padding: 3px;
+        background: #15171c; color: #e6e6e6; border: 1px solid #2a2e35; border-radius: 4px; }
+      #hud select:disabled { opacity: 0.45; }
+      #hud button { width: 100%; margin-top: 10px; padding: 6px; font-size: 12px;
+        cursor: pointer; background: #2a3550; color: #e6e6e6;
+        border: 1px solid #3a445f; border-radius: 4px; }
+      #hud button:hover { background: #344066; }
+      .stats { display: flex; justify-content: space-between; margin-top: 8px;
+        color: #9aa0a6; font-variant-numeric: tabular-nums; }
+      .stats b { color: #e6e6e6; font-weight: 600; }
+      #status { margin-top: 8px; font-size: 12px; color: #9aa0a6; min-height: 1.2em; }
+      .hint { margin-top: 6px; font-size: 11px; color: #6b7178; }
+    </style>
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <div id="hud">
+      <div id="hud-head">
+        <h1>Pearlscape Explorer</h1>
+        <button id="toggle" title="Minimize" aria-label="Minimize menu">–</button>
+      </div>
+      <div id="hud-body">
+        <label for="file">Load .ply</label>
+        <input id="file" type="file" accept=".ply" />
+        <label for="palette">Palette</label>
+        <select id="palette" disabled></select>
+        <label for="size">Bead size (mm): <span id="sizeVal"></span></label>
+        <input id="size" type="range" min="1" max="40" step="0.5" value="6" />
+        <button id="shot">Screenshot</button>
+        <div class="stats"><span>beads</span><b id="count">—</b></div>
+        <div class="stats"><span>fps</span><b id="fps">—</b></div>
+        <div id="status"></div>
+        <div class="hint">Drag a .ply onto the window, or drop one in <code>web/data/</code>.</div>
+      </div>
+    </div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
