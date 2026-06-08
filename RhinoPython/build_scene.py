@@ -21,7 +21,7 @@ import numpy as np
 
 from pearlscape import PearlscapeParams
 from pearlscape.cave import make_default_cave
-from pearlscape.curtains import array_x_center, curtain_x_positions, slice_and_project
+from pearlscape.curtains import array_x_center, build_curtains, curtain_x_positions
 from pearlscape import color as color_mod
 from pearlscape import display
 from pearlscape import export as export_mod
@@ -84,13 +84,13 @@ def main() -> None:
     # sprites -> pointcloud) doesn't leave stale beads drawn on screen.
     display.clear_sprite_conduit()
 
-    t0 = time.time()
     cave = make_default_cave(params)
-    pts = cave.sample_surface_points()
-    print(f"Cave: {len(pts)} surface points in {time.time()-t0:.2f}s")
 
     if params.pipeline_mode == "cave":
         # Mode 1 — raw cave only: single coloured PointCloud on CaveReference.
+        t0 = time.time()
+        pts = cave.sample_surface_points()
+        print(f"Cave: {len(pts)} surface points in {time.time()-t0:.2f}s")
         t0 = time.time()
         colors = color_mod.assign_colors(
             pts,
@@ -112,15 +112,15 @@ def main() -> None:
         print_run_summary(pts, params)
         return
 
-    # Modes "curtains" and "export" both slice + colour + render per-curtain.
+    # Modes "curtains" and "export": sample each curtain plane directly outward
+    # from the cave's cross-section boundary. The dense surface cloud is NOT
+    # produced in these modes — only the cross-section boundary is needed.
     t0 = time.time()
     x_center = array_x_center(params.cave_length)
-    curtains = slice_and_project(
-        pts,
-        curtain_count=params.curtain_count,
-        curtain_spacing=params.curtain_spacing,
-        x_center=x_center,
+    plane_xs = curtain_x_positions(
+        params.curtain_count, params.curtain_spacing, x_center
     )
+    curtains = build_curtains(cave, plane_xs, params)
     total = sum(len(c["points_2d"]) for c in curtains)
     print(f"Curtains: {len(curtains)} planes, {total} beads in {time.time()-t0:.2f}s")
 
@@ -128,9 +128,6 @@ def main() -> None:
     color_mod.apply_to_curtains(curtains, params)
     print(f"Colors assigned in {time.time()-t0:.2f}s")
 
-    plane_xs = curtain_x_positions(
-        params.curtain_count, params.curtain_spacing, x_center
-    )
     display.render_curtain_planes(plane_xs, params.curtain_width, params.curtain_height)
     if params.display_mode == "pointcloud":
         display.render_pointclouds(curtains)
@@ -155,7 +152,8 @@ def main() -> None:
         pdf_paths = export_mod.export_all_pdfs(out_dir)
         print(f"Exported {len(pdf_paths)} PDFs to {out_dir} in {time.time()-t0:.2f}s")
 
-    # Summary (final output): measure the actual projected beads, not the surface.
+    # Summary (final output): measure the in-plane bead positions from cross-section
+    # sampling, not the raw surface cloud.
     if total:
         beads = np.vstack([
             display._projected_points(c) for c in curtains if len(c["points_2d"])

@@ -34,6 +34,12 @@ class CaveSurface(Protocol):
         """Return an (N, 3) array of points on the cave surface, in world coordinates."""
         ...
 
+    def inner_boundary(self, plane_x: float, n_angular: int):
+        """Return (centroid_yz (2,), theta (n_angular,), r_inner (n_angular,)) for
+        the cave's craggy cross-section at X = plane_x, in the curtain's Y/Z plane.
+        theta is sorted ascending in [0, 2*pi); r_inner is measured from centroid_yz."""
+        ...
+
 
 class CylinderFBMCave:
     """A cylinder along X, with surface points blue-noise-sampled and
@@ -121,6 +127,35 @@ class CylinderFBMCave:
             self.center_z + r_eff * np.sin(theta),
         ])
         return pts
+
+    def inner_boundary(self, plane_x: float, n_angular: int):
+        """Craggy cross-section boundary at X = plane_x. Reuses the exact noise
+        convention of sample_surface_points so the boundary matches the wall."""
+        from pearlscape.cross_section import displaced_ring_boundary
+
+        th = np.linspace(0.0, 2.0 * math.pi, n_angular, endpoint=False)
+        cos, sin = np.cos(th), np.sin(th)
+        xcol = np.full(n_angular, float(plane_x))
+        base_xyz = np.column_stack([
+            xcol,
+            self.radius * cos,
+            self.center_z + self.radius * sin,
+        ])
+        # Outward normals: radial in Y/Z, zero along X.
+        normals = np.column_stack([np.zeros(n_angular), cos, sin])
+        # Noise sampled exactly as sample_surface_points: (R cos, R sin, x) * freq.
+        base_noise = np.column_stack([
+            self.radius * cos, self.radius * sin, xcol,
+        ]) * self.fbm_base_freq
+        perm = make_perm(self.noise_seed)
+        noise_fn = ridged3_01 if self.noise_type == "ridged" else fbm3_01
+        n01 = noise_fn(
+            base_noise, perm,
+            octaves=self.fbm_octaves, lacunarity=self.fbm_lacunarity, gain=self.fbm_gain,
+        )
+        return displaced_ring_boundary(
+            base_xyz, normals, n01, fbm_amplitude=self.fbm_amplitude,
+        )
 
 
 def make_default_cave(params):

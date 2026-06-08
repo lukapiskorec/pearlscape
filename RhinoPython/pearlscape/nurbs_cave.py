@@ -18,7 +18,7 @@ _PKG_PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PKG_PARENT not in sys.path:
     sys.path.insert(0, _PKG_PARENT)
 
-from pearlscape.noise import fbm3_01, make_perm
+from pearlscape.noise import fbm3_01, ridged3_01, make_perm
 from pearlscape import surface_sampling
 
 
@@ -117,6 +117,19 @@ class NurbsLoftCave:
     def __init__(self, surface, params) -> None:
         self.surface = surface
         self.params = params
+        self._grid = None       # (nu, nv, 3) base-surface eval, cached
+        self._normals = None    # (nu, nv, 3) per-node unit normals, cached
+        # Note: only inner_boundary uses this cache; sample_surface_points
+        # evaluates its own grid. The two run in different pipeline modes, so
+        # the grid is never evaluated twice in one run.
+
+    def _ensure_grid(self):
+        """Evaluate (and cache) the base surface grid + normals once."""
+        if self._grid is None:
+            p = self.params
+            self._grid = eval_surface_grid(self.surface, p.nurbs_grid_u, p.nurbs_grid_v)
+            self._normals = surface_sampling.grid_normals(self._grid)
+        return self._grid, self._normals
 
     def sample_surface_points(self) -> np.ndarray:
         p = self.params
@@ -132,6 +145,56 @@ class NurbsLoftCave:
             gain=p.fbm_gain,
             noise_type=p.noise_type,
             noise_seed=p.noise_seed,
+        )
+
+    def inner_boundary(self, plane_x: float, n_angular: int):
+        """Craggy cross-section boundary at X = plane_x, derived from the cached
+        base grid + the same noise convention as sample_and_displace."""
+        from pearlscape.cross_section import displaced_ring_boundary
+
+        grid, normals = self._ensure_grid()
+        nu, nv = grid.shape[0], grid.shape[1]
+
+        # Interpolate the base ring at the u where X == plane_x. X is ~monotonic
+        # along u (centerline meanders in Y/Z only), so per-u mean X is a safe key.
+        # np.interp requires xu non-decreasing; warn if the loft ever violates that
+        # (it would otherwise return a silently-wrong u with no error).
+        xu = grid[:, :, 0].mean(axis=1)                      # (nu,)
+        if np.any(np.diff(xu) < 0.0):
+            print("WARNING: inner_boundary: per-u mean X is not monotonic; "
+                  "cross-section u-interpolation may be wrong.")
+        u_frac = float(np.interp(plane_x, xu, np.arange(nu)))
+        u0 = int(np.clip(np.floor(u_frac), 0, nu - 2))
+        tu = u_frac - u0
+        ring = (1.0 - tu) * grid[u0] + tu * grid[u0 + 1]     # (nv, 3)
+        ring_n = (1.0 - tu) * normals[u0] + tu * normals[u0 + 1]
+
+        # Resample the periodic ring to n_angular points.
+        v_idx = np.linspace(0.0, nv, n_angular, endpoint=False)
+        v0 = np.floor(v_idx).astype(np.int64) % nv
+        v1 = (v0 + 1) % nv
+        tv = (v_idx - np.floor(v_idx))[:, None]
+        base_xyz = (1.0 - tv) * ring[v0] + tv * ring[v1]     # (n_angular, 3)
+        nrm = (1.0 - tv) * ring_n[v0] + tv * ring_n[v1]
+        nrm /= np.maximum(np.linalg.norm(nrm, axis=1, keepdims=True), 1e-12)
+
+        # Orient normals outward from the ring's center (match sample_and_displace).
+        center3 = base_xyz.mean(axis=0)
+        outward = base_xyz - center3
+        sign = np.sign(np.sum(nrm * outward, axis=1, keepdims=True))
+        sign = np.where(sign == 0, 1.0, sign)
+        nrm = nrm * sign
+
+        # Noise at world coordinates (matches sample_and_displace: base_pts * freq).
+        p = self.params
+        perm = make_perm(p.noise_seed)
+        noise_fn = ridged3_01 if p.noise_type == "ridged" else fbm3_01
+        n01 = noise_fn(
+            base_xyz * p.fbm_base_freq, perm,
+            octaves=p.fbm_octaves, lacunarity=p.fbm_lacunarity, gain=p.fbm_gain,
+        )
+        return displaced_ring_boundary(
+            base_xyz, nrm, n01, fbm_amplitude=p.fbm_amplitude,
         )
 
 

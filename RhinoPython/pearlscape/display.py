@@ -109,7 +109,7 @@ def render_cave_reference(
 def render_pointclouds(curtains: Sequence[dict]) -> None:
     """Render per-curtain PointClouds.
 
-    Each item in `curtains` is the dict produced by curtains.slice_and_project:
+    Each item in `curtains` is the dict produced by curtains.build_curtains:
         { 'plane_x': float, 'points_2d': np.ndarray (M, 2),
           'points_3d': np.ndarray (M, 3), 'colors': np.ndarray (M, 3) | None }
     The displayed point is (plane_x, y, z) — i.e. the projected position.

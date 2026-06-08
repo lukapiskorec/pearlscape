@@ -70,8 +70,17 @@ class PearlscapeParams:
     total_surface_samples: int = 300_000
     bead_diameter: float = 6.0   # mm
 
+    # --- Curtain band (in-plane bead placement) ---
+    # Beads are sampled directly in each curtain plane, outward from the cave's
+    # cross-section curve. Thickness controls how far the soft outer volume
+    # reaches (and thus how much it bridges the gaps between curtains); fade is
+    # the exponent of the outward density falloff p = (1 - d/T)^fade.
+    curtain_band_thickness: float = 120.0   # max outward reach of beads (mm)
+    curtain_band_fade: float = 1.5          # outward density falloff exponent
+    bead_min_spacing: float = 6.0           # in-plane blue-noise spacing (mm)
+
     # --- Color ---
-    palette: List[RGB] = field(default_factory=lambda: list(palettes.WILDFLOWER))
+    palette: List[RGB] = field(default_factory=lambda: list(palettes.OCEAN_BLUE))
     color_base_freq: float = 0.0015   # cycles per mm
     color_fbm_octaves: int = 2
     color_fbm_lacunarity: float = 2.0
@@ -112,4 +121,10 @@ class PearlscapeParams:
         assert 0.0 <= self.nurbs_radius_jitter < 1.0
         assert self.nurbs_grid_u >= 2 and self.nurbs_grid_v >= 3
         assert self.color_dither >= 0.0
+        assert self.curtain_band_thickness > 0.0
+        assert self.curtain_band_fade >= 0.0
+        assert self.bead_min_spacing >= self.bead_diameter, (
+            f"bead_min_spacing ({self.bead_min_spacing}) must be >= bead_diameter "
+            f"({self.bead_diameter}) so placed beads cannot physically overlap."
+        )
         assert len(self.palette) >= 2

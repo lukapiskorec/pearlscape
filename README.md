@@ -1,6 +1,6 @@
 # Pearlscape
 
-Parametric Rhino Python pipeline for the *Pearlscape* installation — a series of translucent, ceiling-hung curtains embedded with coloured glass beads. The beads on each curtain trace a thin slice of a virtual cave; viewed perpendicular to the stack, the layered slices reconstruct the cave's interior depth.
+Parametric Rhino Python pipeline for the *Pearlscape* installation — a series of translucent, ceiling-hung curtains embedded with coloured glass beads. The beads on each curtain fill the plane outward from the cave's cross-section curve at that depth — a sharp inner cave edge with a soft outer volume — so that, viewed perpendicular to the stack, the layered slices reconstruct the cave's interior depth.
 
 ## Requirements
 
@@ -25,7 +25,7 @@ Edit `pipeline_mode` in `RhinoPython/pearlscape/params.py` to control how much o
 | `pipeline_mode` | What it produces                                                                                 | Fast to iterate? | Use when…                                                  |
 |-----------------|--------------------------------------------------------------------------------------------------|------------------|------------------------------------------------------------|
 | `"cave"`        | One unsliced, palette-coloured cave point cloud on the `Pearlscape::CaveReference` layer.        | Fastest          | Tuning the cave's geometry, noise, or colour field.        |
-| `"curtains"`    | Cave is sliced into 25 curtain planes; each plane has its own coloured beads.                    | Medium           | Tuning curtain spacing, colour palette, or display mode.   |
+| `"curtains"`    | Cave cross-section is taken at 25 curtain planes; each plane's beads are sampled in-plane, outward from the cross-section curve.                    | Medium           | Tuning curtain spacing, colour palette, or display mode.   |
 | `"export"`      | Curtain model **plus** 25 A1 layout pages, one PDF per curtain in `exports/`.                    | Slowest          | Producing fabrication output, or final preflight.          |
 
 Each mode is a strict superset of the one above it.
@@ -92,7 +92,10 @@ To hand-edit: run once in `"rebuild"`, then `_PointsOn` the surface, move points
 | `curtain_spacing` | `200.0`   | Spacing between adjacent curtains along X (mm).                        |
 | `curtain_width`   | `2500.0`  | Curtain width along Y (mm).                                            |
 | `curtain_height`  | `3000.0`  | Curtain height along Z (mm); ceiling at Z=3000, floor at Z=0.          |
-| `cave_center_z`   | `1500.0`  | Vertical position of the cave's centreline (mm).                       |
+| `cave_center_z`          | `1500.0`  | Vertical position of the cave's centreline (mm).                       |
+| `curtain_band_thickness` | `120.0`   | Max outward reach of beads from the inner cross-section curve (mm). The gap-bridging knob — raise to close inter-curtain gaps. |
+| `curtain_band_fade`      | `1.5`     | Outward density falloff exponent: `p = (1 − d/T)^fade`. Higher = beads hug the inner edge tighter. |
+| `bead_min_spacing`       | `6.0`     | In-plane blue-noise spacing (mm). Must be ≥ `bead_diameter`. |
 
 Note: `curtain_count × curtain_spacing` should be ≥ `cave_length` to capture every bead. The defaults give 25 × 200 = 5000 mm, exactly matching `cave_length`.
 
@@ -104,6 +107,8 @@ Note: `curtain_count × curtain_spacing` should be ≥ `cave_length` to capture 
 | `bead_diameter`         | `6.0`     | Physical bead diameter (mm). Used in `"instances"` mode.      |
 
 Bridson's Poisson-disk sampler tends to undershoot by ~30–40%, so the actual bead count will be lower than the target. Tighten by raising `total_surface_samples` proportionally.
+
+Note: in `"curtains"`/`"export"` modes the bead count is **not** governed by `total_surface_samples`. Beads are sampled directly in each curtain plane, so the count emerges from the band geometry — tune it via `curtain_band_thickness` and `bead_min_spacing`. `total_surface_samples` governs only the `"cave"` reference cloud.
 
 ### Colour
 
