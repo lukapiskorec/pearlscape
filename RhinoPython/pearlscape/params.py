@@ -38,7 +38,7 @@ class PearlscapeParams:
     # craggy crevices). Reuses the fbm_* octave/lacunarity/gain params above.
     noise_type: str = "ridged"
 
-    noise_seed: int = 3
+    noise_seed: int = 4
 
     # --- Cave geometry (NURBS, used when cave_type == "nurbs") ---
     # "cylinder" -> CylinderFBMCave (radial noise on a cylinder).
@@ -60,8 +60,8 @@ class PearlscapeParams:
     nurbs_grid_v: int = 180            # surface-eval grid divisions around theta
 
     # --- Curtain array (mm) ---
-    curtain_count: int = 50
-    curtain_spacing: float = 100.0
+    curtain_count: int = 100
+    curtain_spacing: float = 50.0
     curtain_width: float = 2500.0
     curtain_height: float = 3000.0
     cave_center_z: float = 1500.0   # cave centerline elevation
@@ -78,6 +78,11 @@ class PearlscapeParams:
     curtain_band_thickness: float = 120.0   # max outward reach of beads (mm)
     curtain_band_fade: float = 1.5          # outward density falloff exponent
     bead_min_spacing: float = 6.0           # in-plane blue-noise spacing (mm)
+    # Bead budget. When > 0, bead_min_spacing is auto-solved each run so the
+    # total bead count lands near this target, given the live band_thickness /
+    # fade / curtain layout + cave geometry. 0 disables the solver and uses
+    # bead_min_spacing as set above.
+    target_bead_count: int = 500_000
 
     # --- Color ---
     palette: List[RGB] = field(default_factory=lambda: list(palettes.OCEAN_BLUE))
@@ -127,4 +132,5 @@ class PearlscapeParams:
             f"bead_min_spacing ({self.bead_min_spacing}) must be >= bead_diameter "
             f"({self.bead_diameter}) so placed beads cannot physically overlap."
         )
+        assert self.target_bead_count >= 0
         assert len(self.palette) >= 2

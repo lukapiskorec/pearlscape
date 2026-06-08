@@ -96,6 +96,7 @@ To hand-edit: run once in `"rebuild"`, then `_PointsOn` the surface, move points
 | `curtain_band_thickness` | `120.0`   | Max outward reach of beads from the inner cross-section curve (mm). The gap-bridging knob — raise to close inter-curtain gaps. |
 | `curtain_band_fade`      | `1.5`     | Outward density falloff exponent: `p = (1 − d/T)^fade`. Higher = beads hug the inner edge tighter. |
 | `bead_min_spacing`       | `6.0`     | In-plane blue-noise spacing (mm). Must be ≥ `bead_diameter`. |
+| `target_bead_count`      | `0`       | When > 0, auto-solves `bead_min_spacing` each run so the total bead count lands near this target (given the live band shape + cave geometry). `0` uses `bead_min_spacing` as set above. The solved spacing is printed to the console. |
 
 Note: `curtain_count × curtain_spacing` should be ≥ `cave_length` to capture every bead. The defaults give 25 × 200 = 5000 mm, exactly matching `cave_length`.
 
@@ -108,7 +109,7 @@ Note: `curtain_count × curtain_spacing` should be ≥ `cave_length` to capture 
 
 Bridson's Poisson-disk sampler tends to undershoot by ~30–40%, so the actual bead count will be lower than the target. Tighten by raising `total_surface_samples` proportionally.
 
-Note: in `"curtains"`/`"export"` modes the bead count is **not** governed by `total_surface_samples`. Beads are sampled directly in each curtain plane, so the count emerges from the band geometry — tune it via `curtain_band_thickness` and `bead_min_spacing`. `total_surface_samples` governs only the `"cave"` reference cloud.
+Note: in `"curtains"`/`"export"` modes the bead count is **not** governed by `total_surface_samples`. Beads are sampled directly in each curtain plane, so the count emerges from the band geometry — tune it via `curtain_band_thickness` and `bead_min_spacing`. To target a specific count instead, set `target_bead_count` (> 0) and the run back-solves `bead_min_spacing` for you (landing a few percent under target). `total_surface_samples` governs only the `"cave"` reference cloud.
 
 ### Colour
 

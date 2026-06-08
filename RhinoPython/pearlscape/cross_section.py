@@ -111,6 +111,22 @@ def sample_band(
     return np.column_stack([y, z])
 
 
+def boundary_perimeter(centroid_yz: np.ndarray, theta: np.ndarray, r_inner: np.ndarray) -> float:
+    """Closed-loop length (mm) of the inner boundary curve in the (Y, Z) plane.
+
+    Used by the bead-budget solver to estimate band area without sampling:
+    band area = perimeter * band_thickness.
+    """
+    if theta.shape[0] == 0:
+        return 0.0
+    cy, cz = float(centroid_yz[0]), float(centroid_yz[1])
+    by = cy + r_inner * np.cos(theta)
+    bz = cz + r_inner * np.sin(theta)
+    dby = np.diff(np.append(by, by[0]))
+    dbz = np.diff(np.append(bz, bz[0]))
+    return float(np.sqrt(dby ** 2 + dbz ** 2).sum())
+
+
 if __name__ == "__main__":
     # --- displaced_ring_boundary: zero noise -> exact circle ---
     n = 720
@@ -123,6 +139,10 @@ if __name__ == "__main__":
     assert np.allclose(centroid, [0.0, cz], atol=1e-6), centroid
     assert np.allclose(r_inner, R, atol=1e-6), (r_inner.min(), r_inner.max())
     assert np.all(np.diff(theta) >= 0), "theta not sorted"
+
+    # boundary_perimeter of a circle of radius R is ~2*pi*R (chord underestimate).
+    perim = boundary_perimeter(centroid, theta, r_inner)
+    assert abs(perim - 2.0 * np.pi * R) / (2.0 * np.pi * R) < 1e-3, perim
 
     # constant inward noise shrinks the radius by amplitude * n01
     _, _, r_in2 = displaced_ring_boundary(base, nrm, np.full(n, 0.5), fbm_amplitude=300.0)

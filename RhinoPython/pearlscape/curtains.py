@@ -5,6 +5,7 @@ the cave's craggy cross-section boundary. Replaces the old slice-and-project
 approach: beads are placed directly in the plane, so there is no projection
 stacking and the inner cave edge stays sharp."""
 
+import math
 import os
 import sys
 from typing import List, Sequence
@@ -29,6 +30,38 @@ def array_x_center(cave_length: float) -> float:
     return cave_length / 2.0
 
 
+def _resolve_bead_spacing(boundaries: Sequence[tuple], params) -> float:
+    """Pick the in-plane bead spacing.
+
+    If params.target_bead_count > 0, solve the spacing from the total band area
+    so the bead count lands near the target; otherwise use params.bead_min_spacing
+    as set. Band area is perimeter * band_thickness summed over curtains, and the
+    fade keeps a mean fraction 1/(fade+1) of the candidates, so
+        beads ~= total_area / spacing^2 * keep   ->   spacing = sqrt(area*keep/target).
+    Spacing is clamped to >= bead_diameter (beads cannot pack tighter than touching).
+    """
+    if params.target_bead_count <= 0:
+        return params.bead_min_spacing
+
+    keep = 1.0 / (params.curtain_band_fade + 1.0)
+    total_area = params.curtain_band_thickness * sum(
+        cross_section.boundary_perimeter(c, th, ri) for c, th, ri in boundaries
+    )
+    if total_area <= 0.0:
+        return params.bead_min_spacing
+
+    s = math.sqrt(total_area * keep / params.target_bead_count)
+    s_clamped = max(s, params.bead_diameter)
+    if s_clamped > s + 1e-9:
+        print(f"Bead budget: target {params.target_bead_count:,} needs spacing "
+              f"{s:.2f}mm < bead_diameter {params.bead_diameter:g}; clamped to "
+              f"{s_clamped:.2f}mm (count will exceed target).")
+    else:
+        print(f"Bead budget: target {params.target_bead_count:,} -> "
+              f"bead_min_spacing {s_clamped:.2f}mm.")
+    return s_clamped
+
+
 def build_curtains(cave, plane_xs: Sequence[float], params) -> List[dict]:
     """For each curtain plane, sample beads in-plane outside the cave's cross-
     section boundary, fading outward. Returns one dict per curtain:
@@ -36,19 +69,26 @@ def build_curtains(cave, plane_xs: Sequence[float], params) -> List[dict]:
          'points_2d': np.ndarray (M, 2)  # columns (Y, Z), the in-plane beads
          'points_3d': np.ndarray (M, 3)} # (plane_x, Y, Z), for colour sampling
     """
-    # Angular resolution for the boundary curve: ~one sample per bead-spacing arc
-    # along the nominal circumference (finer than bead size is wasted detail).
-    n_angular = max(720, int(2.0 * np.pi * params.cave_radius / params.bead_min_spacing))
+    # Angular resolution for the boundary curve: ~one sample per bead-diameter arc
+    # along the nominal circumference (finer than bead size is wasted detail). Keyed
+    # to bead_diameter, not bead_min_spacing, so the curve stays crisp even when the
+    # budget solver widens the spacing.
+    n_angular = max(720, int(2.0 * np.pi * params.cave_radius / params.bead_diameter))
+
+    # Compute every cross-section boundary once (the geometry cost; for the NURBS
+    # cave the surface grid is evaluated and cached on the first call), then resolve
+    # the bead spacing from them if a bead budget is set.
+    boundaries = [cave.inner_boundary(float(px), n_angular) for px in plane_xs]
+    spacing = _resolve_bead_spacing(boundaries, params)
 
     curtains: List[dict] = []
-    for i, plane_x in enumerate(plane_xs):
+    for i, (plane_x, (centroid, theta, r_inner)) in enumerate(zip(plane_xs, boundaries)):
         plane_x = float(plane_x)
-        centroid, theta, r_inner = cave.inner_boundary(plane_x, n_angular)
         pts_2d = cross_section.sample_band(
             centroid, theta, r_inner,
             band_thickness=params.curtain_band_thickness,
             fade=params.curtain_band_fade,
-            spacing=params.bead_min_spacing,
+            spacing=spacing,
             # Curtain seeds occupy [noise_seed + 1000, noise_seed + 1000 + curtain_count).
             # Keep other seed offsets derived from noise_seed outside this range.
             seed=params.noise_seed + 1000 + i,
@@ -110,5 +150,15 @@ if __name__ == "__main__":
     )
     assert no_clash, "two curtains produced identical bead patterns (seed not varying)"
 
+    # Bead budget: with target_bead_count set, the total lands near the target.
+    budget = PearlscapeParams()
+    budget.target_bead_count = 20_000
+    xs_b = curtain_x_positions(10, 50.0, array_x_center(2000.0))
+    curtains_b = build_curtains(cave, xs_b, budget)
+    total_b = sum(len(c["points_2d"]) for c in curtains_b)
+    rel = abs(total_b - budget.target_bead_count) / budget.target_bead_count
+    assert rel < 0.10, f"budget off: got {total_b}, target {budget.target_bead_count} ({rel:.1%})"
+
     print(f"5 curtains, {total} beads, deterministic, seeds distinct")
+    print(f"bead budget: target 20,000 -> {total_b} beads ({rel:.1%} off)")
     print("OK")
