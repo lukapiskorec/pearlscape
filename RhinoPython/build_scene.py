@@ -28,13 +28,15 @@ from pearlscape import export as export_mod
 from pearlscape import palettes
 
 
-def print_run_summary(beads: np.ndarray, params, n_curtains: int) -> None:
+def print_run_summary(beads: np.ndarray, params, n_curtains: int, bead_spacing: float) -> None:
     """Print a config + result summary block for the beads just generated.
 
     `beads` is the (N, 3) array of actual bead positions (cave cloud in "cave"
     mode, projected per-curtain beads otherwise) — not the NURBS surface.
     `n_curtains` is the actual number of curtain planes built (derived from the
     surface extent in "nurbs" mode, not necessarily params.curtain_count).
+    `bead_spacing` is the in-plane spacing actually used (the budget solver may
+    override params.bead_min_spacing).
     """
     n = int(beads.shape[0])
     print("")
@@ -43,6 +45,9 @@ def print_run_summary(beads: np.ndarray, params, n_curtains: int) -> None:
     print("curtain params (mm):")
     print(f"  curtain_count = {n_curtains}")
     print(f"  curtain_spacing = {params.curtain_spacing:g}")
+    print(f"  curtain_band_thickness = {params.curtain_band_thickness:g}")
+    print(f"  curtain_band_fade = {params.curtain_band_fade:g}")
+    print(f"  bead_min_spacing = {bead_spacing:g}")
     print("")
     print(f"beads: {n:,}")
     print(f"bead_diameter: {params.bead_diameter:g}")
@@ -111,7 +116,7 @@ def main() -> None:
             display.render_cave_reference(pts, colors=colors)
         print(f"Rendered cave only ({params.display_mode}, "
               f"pipeline_mode={params.pipeline_mode!r}).")
-        print_run_summary(pts, params, params.curtain_count)
+        print_run_summary(pts, params, params.curtain_count, params.bead_min_spacing)
         return
 
     # Modes "curtains" and "export": sample each curtain plane directly outward
@@ -119,7 +124,7 @@ def main() -> None:
     # produced in these modes — only the cross-section boundary is needed.
     t0 = time.time()
     plane_xs = curtain_planes(cave, params)
-    curtains = build_curtains(cave, plane_xs, params)
+    curtains, bead_spacing = build_curtains(cave, plane_xs, params)
     total = sum(len(c["points_2d"]) for c in curtains)
     print(f"Curtains: {len(curtains)} planes, {total} beads in {time.time()-t0:.2f}s")
 
@@ -159,7 +164,7 @@ def main() -> None:
         ])
     else:
         beads = np.zeros((0, 3))
-    print_run_summary(beads, params, len(plane_xs))
+    print_run_summary(beads, params, len(plane_xs), bead_spacing)
 
 
 if __name__ == "__main__":

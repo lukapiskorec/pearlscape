@@ -8,7 +8,7 @@ stacking and the inner cave edge stays sharp."""
 import math
 import os
 import sys
-from typing import List, Sequence
+from typing import List, Sequence, Tuple
 
 import numpy as np
 
@@ -100,12 +100,18 @@ def _resolve_bead_spacing(boundaries: Sequence[tuple], params) -> float:
     return s_clamped
 
 
-def build_curtains(cave, plane_xs: Sequence[float], params) -> List[dict]:
+def build_curtains(cave, plane_xs: Sequence[float], params) -> Tuple[List[dict], float]:
     """For each curtain plane, sample beads in-plane outside the cave's cross-
-    section boundary, fading outward. Returns one dict per curtain:
+    section boundary, fading outward.
+
+    Returns (curtains, bead_spacing):
+      curtains: one dict per curtain
         {'plane_x': float,
          'points_2d': np.ndarray (M, 2)  # columns (Y, Z), the in-plane beads
          'points_3d': np.ndarray (M, 3)} # (plane_x, Y, Z), for colour sampling
+      bead_spacing: the in-plane spacing (mm) actually used — equal to
+        params.bead_min_spacing, or the value the budget solver resolved when
+        target_bead_count > 0.
     """
     # Angular resolution for the boundary curve: ~one sample per bead-diameter arc
     # along the nominal circumference (finer than bead size is wasted detail). Keyed
@@ -144,7 +150,7 @@ def build_curtains(cave, plane_xs: Sequence[float], params) -> List[dict]:
             "points_2d": pts_2d,
             "points_3d": pts_3d,
         })
-    return curtains
+    return curtains, spacing
 
 
 if __name__ == "__main__":
@@ -161,7 +167,8 @@ if __name__ == "__main__":
         noise_type="ridged",
     )
     xs = curtain_x_positions(5, 100.0, array_x_center(2000.0))
-    curtains = build_curtains(cave, xs, params)
+    curtains, spacing_used = build_curtains(cave, xs, params)
+    assert spacing_used == params.bead_min_spacing   # no budget -> param spacing
 
     assert len(curtains) == 5, len(curtains)
     for c in curtains:
@@ -175,7 +182,7 @@ if __name__ == "__main__":
     assert total > 0, "no beads generated"
 
     # Determinism: same params -> identical beads.
-    curtains2 = build_curtains(cave, xs, params)
+    curtains2, _ = build_curtains(cave, xs, params)
     same = all(np.array_equal(a["points_2d"], b["points_2d"])
                for a, b in zip(curtains, curtains2))
     assert same, "build_curtains not deterministic"
@@ -207,7 +214,7 @@ if __name__ == "__main__":
     budget = PearlscapeParams()
     budget.target_bead_count = 20_000
     xs_b = curtain_x_positions(10, 50.0, array_x_center(2000.0))
-    curtains_b = build_curtains(cave, xs_b, budget)
+    curtains_b, _ = build_curtains(cave, xs_b, budget)
     total_b = sum(len(c["points_2d"]) for c in curtains_b)
     rel = abs(total_b - budget.target_bead_count) / budget.target_bead_count
     assert rel < 0.10, f"budget off: got {total_b}, target {budget.target_bead_count} ({rel:.1%})"
