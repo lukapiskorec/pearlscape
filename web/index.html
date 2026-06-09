@@ -27,7 +27,6 @@
       #hud.collapsed #hud-body { display: none; }
       #hud-body { margin-top: 8px; }
       #hud label { display: block; margin: 8px 0 2px; color: #9aa0a6; font-size: 12px; }
-      #hud input[type="file"] { width: 100%; font-size: 12px; }
       #hud input[type="range"] { width: 100%; }
       #hud select { width: 100%; font-size: 12px; padding: 3px;
         background: #15171c; color: #e6e6e6; border: 1px solid #2a2e35; border-radius: 4px; }
@@ -61,8 +60,6 @@
       <div id="hud-body">
         <label for="model">Model</label>
         <select id="model" disabled></select>
-        <label for="file">Load .ply</label>
-        <input id="file" type="file" accept=".ply" />
         <label for="palette">Palette</label>
         <select id="palette" disabled></select>
         <label for="size">Bead size (mm): <span id="sizeVal"></span></label>
@@ -72,7 +69,7 @@
         <div class="stats"><span>fps</span><b id="fps">—</b></div>
         <div id="status"></div>
         <div id="progress"><div id="progress-bar"></div></div>
-        <div class="hint">Drag a .ply onto the window, or drop one in <code>web/data/</code>.</div>
+        <div class="hint">You can also drag &amp; drop a <code>.ply</code> model directly onto the window.</div>
       </div>
     </div>
 

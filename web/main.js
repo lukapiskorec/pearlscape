@@ -152,7 +152,7 @@ function loadFromBuffer(arrayBuffer) {
 
 // --- Models ----------------------------------------------------------------
 // Bundled models listed in data/models.json. Absent the manifest, the dropdown
-// stays disabled and the user loads a file via the picker or drag-and-drop.
+// stays disabled and the user loads a file via drag-and-drop.
 async function loadModels() {
   try {
     const res = await fetch("data/models.json", { cache: "no-cache" });
@@ -246,7 +246,6 @@ async function loadSelectedModel() {
 }
 
 // --- HUD -------------------------------------------------------------------
-const fileInput = document.getElementById("file");
 const sizeSlider = document.getElementById("size");
 const sizeVal = document.getElementById("sizeVal");
 const paletteSelect = document.getElementById("palette");
@@ -288,13 +287,6 @@ function setStatus(msg, isError = false) {
   statusEl.textContent = msg;
   statusEl.style.color = isError ? "#ff7a7a" : "#9aa0a6";
 }
-
-fileInput.addEventListener("change", async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  setStatus(`Loading ${file.name} …`);
-  loadFromBuffer(await file.arrayBuffer());
-});
 
 sizeSlider.addEventListener("input", () => {
   const v = parseFloat(sizeSlider.value);
@@ -356,7 +348,13 @@ loadPalettes()
   .then(loadModels)
   .then((m) => {
     modelsData = m;
-    // No model auto-loads; the user picks one from the dropdown.
-    if (m && m.models.length) setStatus("Select a model to load.");
+    // Auto-load the default model on startup (the entry whose file matches
+    // models.json "default", else the first listed) so the viewer opens with a
+    // model already shown.
+    if (m && m.models.length) {
+      const di = m.models.findIndex((x) => x.file === m.default);
+      modelSelect.value = String(di < 0 ? 0 : di);
+      loadSelectedModel();
+    }
   });
 requestAnimationFrame(animate);
