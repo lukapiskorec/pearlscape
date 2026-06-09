@@ -3,6 +3,7 @@
   "models": [
     { "name": "01 cave surface", "file": "pearlscape_cave.ply" },
     { "name": "01 curtains - baseline", "file": "pearlscape_baseline.ply" },
-    { "name": "01 curtains - max bridge", "file": "pearlscape_max_bridge.ply" }
+    { "name": "01 curtains - max bridge", "file": "pearlscape_max_bridge.ply" },
+    { "name": "02 thin shell curtains", "file": "pearlscape_thin_shell_curtains.ply" }
   ]
 }
