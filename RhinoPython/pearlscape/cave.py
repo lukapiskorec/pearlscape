@@ -66,6 +66,7 @@ class CylinderFBMCave:
         noise_type: str = "fbm",
         sampling_seed: int = 0,
         radius_shrink: float = 0.93,
+        bead_spacing: float = 0.0,
     ) -> None:
         if fbm_amplitude >= radius:
             raise ValueError(
@@ -89,11 +90,17 @@ class CylinderFBMCave:
         # to land closer to the target. Empirical 0.93 typically lands ~60k
         # when target is 60k.
         self.radius_shrink = radius_shrink
+        # When > 0, use this as the Bridson minimum distance directly (a true
+        # min spacing) instead of deriving r from target_samples.
+        self.bead_spacing = bead_spacing
 
     def sample_surface_points(self) -> np.ndarray:
         wrap = 2.0 * math.pi * self.radius
-        r = estimate_radius_for_count(self.length, wrap, self.target_samples)
-        r *= self.radius_shrink
+        if self.bead_spacing > 0.0:
+            r = self.bead_spacing
+        else:
+            r = estimate_radius_for_count(self.length, wrap, self.target_samples)
+            r *= self.radius_shrink
 
         param_pts = bridson_torus(
             width=self.length,
@@ -189,6 +196,7 @@ def make_default_cave(params):
         target_samples=params.total_surface_samples,
         center_z=params.cave_center_z,
         noise_type=params.noise_type,
+        bead_spacing=params.cave_bead_spacing,
     )
 
 

@@ -18,7 +18,7 @@ if _PKG_PARENT not in sys.path:
     sys.path.insert(0, _PKG_PARENT)
 
 from pearlscape.noise import fbm3_01, ridged3_01, make_perm
-from pearlscape.sampling import jittered_grid
+from pearlscape.sampling import bridson_torus, jittered_grid
 
 
 def grid_normals(grid_xyz: np.ndarray) -> np.ndarray:
@@ -82,8 +82,16 @@ def sample_and_displace(
     noise_type: str,
     noise_seed: int,
     sample_seed: int = 0,
+    min_spacing: float = 0.0,
 ) -> np.ndarray:
     """Blue-noise-sample the surface grid and displace inward by ridged/FBM noise.
+
+    `target` sets the sample count directly (stratified jittered sampling). If
+    `min_spacing` > 0 it instead Poisson-disk-samples the surface with that as a
+    true minimum spacing (mm): no two beads land closer than ~min_spacing in
+    surface arc-length, so there is no inter-cell clustering — `target` is
+    ignored. Poisson sampling is a Python loop and costs a few seconds at typical
+    cave spacings.
 
     Returns an (N, 3) array of displaced surface points in world coordinates.
     """
@@ -100,7 +108,13 @@ def sample_and_displace(
     ).sum(axis=1)
     wrap_len = max(float(ring_edges.mean()), 1e-9)           # around v (~circumference)
 
-    samp = jittered_grid(width=width_len, wrap=wrap_len, target_n=target, seed=sample_seed)
+    if min_spacing > 0.0:
+        # True Poisson-disk minimum distance in (arc-length) parameter space,
+        # which approximates the surface min spacing. Unlike jittered_grid, this
+        # forbids the close pairs between adjacent cells that cause clustering.
+        samp = bridson_torus(width=width_len, wrap=wrap_len, r=min_spacing, seed=sample_seed)
+    else:
+        samp = jittered_grid(width=width_len, wrap=wrap_len, target_n=target, seed=sample_seed)
     if samp.shape[0] == 0:
         return np.empty((0, 3), dtype=np.float64)
     # jittered_grid columns are (wrap_axis, width_axis): col 0 runs around the

@@ -52,6 +52,30 @@ def _write_palettes_json(path: str, params) -> None:
         json.dump(data, f, indent=2)
 
 
+def _export_ply_bundle(beads, bead_colors, field, dither_rand, params) -> None:
+    """Write the bead cloud to params.ply_output_path (binary PLY) plus a
+    palettes.json beside it, with the per-bead colour field + dither so the web
+    viewer can re-quantize against any palette. Shared by the curtain export
+    ("export_ply") and the raw-cave export ("export_cave_ply")."""
+    # Path is relative to the repo root (parent of RhinoPython/).
+    repo_root = os.path.dirname(_HERE)
+    out_path = os.path.join(repo_root, params.ply_output_path)
+    t0 = time.time()
+    ply_export.write_ply(
+        out_path, beads, bead_colors, params.bead_diameter,
+        field=field, dither_rand=dither_rand, color_dither=params.color_dither,
+    )
+    size_mb = os.path.getsize(out_path) / (1024.0 * 1024.0)
+    print(f"Wrote {beads.shape[0]:,} beads to {out_path} "
+          f"({size_mb:.1f} MB) in {time.time()-t0:.2f}s")
+
+    # Ship all named palettes (palettes.py is the source of truth) next to the
+    # PLY so the viewer's dropdown stays in sync with the project.
+    palettes_path = os.path.join(os.path.dirname(out_path), "palettes.json")
+    _write_palettes_json(palettes_path, params)
+    print(f"Wrote palette list to {palettes_path}")
+
+
 def print_run_summary(beads: np.ndarray, params, n_curtains: int, bead_spacing: float) -> None:
     """Print a config + result summary block for the beads just generated.
 
@@ -117,8 +141,9 @@ def main() -> None:
 
     cave = make_default_cave(params)
 
-    if params.pipeline_mode == "cave":
+    if params.pipeline_mode in ("cave", "export_cave_ply"):
         # Mode 1 — raw cave only: single coloured PointCloud on CaveReference.
+        # "export_cave_ply" additionally writes the cloud to a binary PLY.
         t0 = time.time()
         pts = cave.sample_surface_points()
         print(f"Cave: {len(pts)} surface points in {time.time()-t0:.2f}s")
@@ -140,6 +165,19 @@ def main() -> None:
             display.render_cave_reference(pts, colors=colors)
         print(f"Rendered cave only ({params.display_mode}, "
               f"pipeline_mode={params.pipeline_mode!r}).")
+
+        if params.pipeline_mode == "export_cave_ply":
+            # Per-bead colour field + dither source (same seeding as the baked
+            # colours), so the viewer can re-quantize against any palette.
+            field = color_mod.color_field(
+                pts, base_freq=params.color_base_freq,
+                octaves=params.color_fbm_octaves,
+                lacunarity=params.color_fbm_lacunarity,
+                gain=params.color_fbm_gain, seed=params.color_noise_seed,
+            )
+            dither_rand = color_mod.dither_randoms(pts.shape[0], params.color_noise_seed)
+            _export_ply_bundle(pts, colors, field, dither_rand, params)
+
         print_run_summary(pts, params, params.curtain_count, params.bead_min_spacing)
         return
 
@@ -212,23 +250,7 @@ def main() -> None:
             field = np.zeros((0,))
             dither_rand = np.zeros((0,))
 
-        # Path is relative to the repo root (parent of RhinoPython/).
-        repo_root = os.path.dirname(_HERE)
-        out_path = os.path.join(repo_root, params.ply_output_path)
-        t0 = time.time()
-        ply_export.write_ply(
-            out_path, beads, bead_colors, params.bead_diameter,
-            field=field, dither_rand=dither_rand, color_dither=params.color_dither,
-        )
-        size_mb = os.path.getsize(out_path) / (1024.0 * 1024.0)
-        print(f"Wrote {beads.shape[0]:,} beads to {out_path} "
-              f"({size_mb:.1f} MB) in {time.time()-t0:.2f}s")
-
-        # Ship all named palettes (palettes.py is the source of truth) next to the
-        # PLY so the viewer's dropdown stays in sync with the project.
-        palettes_path = os.path.join(os.path.dirname(out_path), "palettes.json")
-        _write_palettes_json(palettes_path, params)
-        print(f"Wrote palette list to {palettes_path}")
+        _export_ply_bundle(beads, bead_colors, field, dither_rand, params)
 
     # Summary (final output): measure the in-plane bead positions from cross-section
     # sampling, not the raw surface cloud.

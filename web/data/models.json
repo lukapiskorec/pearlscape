@@ -1,7 +1,8 @@
 {
   "default": "pearlscape_baseline.ply",
   "models": [
-    { "name": "Baseline", "file": "pearlscape_baseline.ply" },
-    { "name": "Max bridge", "file": "pearlscape_max_bridge.ply" }
+    { "name": "01 cave surface", "file": "pearlscape_cave.ply" },
+    { "name": "01 curtains - baseline", "file": "pearlscape_baseline.ply" },
+    { "name": "01 curtains - max bridge", "file": "pearlscape_max_bridge.ply" }
   ]
 }

@@ -72,6 +72,13 @@ class PearlscapeParams:
     # --- Beads ---
     total_surface_samples: int = 300_000
     bead_diameter: float = 6.0   # mm
+    # Cave-mode bead spacing (mm): true Poisson-disk MINIMUM distance between
+    # beads on the raw cave surface (pipeline_mode "cave" / "export_cave_ply").
+    # When > 0, beads are Poisson-sampled so none land closer than this (no
+    # clustering); the count follows from the spacing + cave area. Larger spacing
+    # => looser, fewer beads. 0 disables it and uses total_surface_samples with
+    # the faster jittered sampler (which permits clustering).
+    cave_bead_spacing: float = 12.0
 
     # --- Curtain band (in-plane bead placement) ---
     # Beads are sampled directly in each curtain plane, outward from the cave's
@@ -106,7 +113,9 @@ class PearlscapeParams:
     #   "export_ply" -> curtains + a single binary PLY of all beads (for the
     #                   web viewer); also renders to the viewport. Works with
     #                   any display_mode.
-    pipeline_mode: str = "cave"
+    #   "export_cave_ply" -> raw cave cloud + a single binary PLY of it (no
+    #                   curtains); also renders to the viewport.
+    pipeline_mode: str = "export_cave_ply"
     display_mode: str = "sprites"   # "pointcloud" | "instances" | "sprites"
     instance_sphere_subd: int = 2
     pdf_page_size: str = "A1"
@@ -122,7 +131,9 @@ class PearlscapeParams:
         )
         assert self.curtain_count >= 2
         assert self.noise_type in ("fbm", "ridged")
-        assert self.pipeline_mode in ("cave", "curtains", "export", "export_ply")
+        assert self.pipeline_mode in (
+            "cave", "curtains", "export", "export_ply", "export_cave_ply"
+        )
         assert self.display_mode in ("pointcloud", "instances", "sprites")
         assert not (self.display_mode == "sprites" and self.pipeline_mode == "export"), (
             "display_mode='sprites' is screen-only and cannot drive PDF export; "
@@ -140,6 +151,10 @@ class PearlscapeParams:
         assert self.bead_min_spacing >= self.bead_diameter, (
             f"bead_min_spacing ({self.bead_min_spacing}) must be >= bead_diameter "
             f"({self.bead_diameter}) so placed beads cannot physically overlap."
+        )
+        assert self.cave_bead_spacing == 0.0 or self.cave_bead_spacing >= self.bead_diameter, (
+            f"cave_bead_spacing ({self.cave_bead_spacing}) must be 0 (use the sample "
+            f"count) or >= bead_diameter ({self.bead_diameter})."
         )
         assert self.target_bead_count >= 0
         assert len(self.palette) >= 2

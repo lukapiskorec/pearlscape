@@ -152,6 +152,7 @@ class NurbsLoftCave:
             gain=p.fbm_gain,
             noise_type=p.noise_type,
             noise_seed=p.noise_seed,
+            min_spacing=p.cave_bead_spacing,
         )
 
     def inner_boundary(self, plane_x: float, n_angular: int):
