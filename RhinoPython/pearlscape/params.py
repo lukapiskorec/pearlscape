@@ -106,7 +106,7 @@ class PearlscapeParams:
     #   "export_ply" -> curtains + a single binary PLY of all beads (for the
     #                   web viewer); also renders to the viewport. Works with
     #                   any display_mode.
-    pipeline_mode: str = "export_ply"
+    pipeline_mode: str = "cave"
     display_mode: str = "sprites"   # "pointcloud" | "instances" | "sprites"
     instance_sphere_subd: int = 2
     pdf_page_size: str = "A1"
