@@ -173,19 +173,67 @@ async function loadModels() {
   }
 }
 
+// Streamed fetch so we can report download progress. Falls back to a plain
+// buffer read (indeterminate bar) when the server omits Content-Length or the
+// response isn't streamable. onProgress receives a 0–1 fraction, or -1 when the
+// total size is unknown.
+async function fetchWithProgress(url, onProgress) {
+  const res = await fetch(url, { cache: "no-cache" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const total = Number(res.headers.get("Content-Length")) || 0;
+  if (!res.body || !total) {
+    onProgress(-1);
+    return await res.arrayBuffer();
+  }
+  const reader = res.body.getReader();
+  const chunks = [];
+  let received = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.length;
+    onProgress(received / total);
+  }
+  const out = new Uint8Array(received);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.length;
+  }
+  return out.buffer;
+}
+
+// In-memory cache of fetched PLY buffers, keyed by filename. Re-selecting a
+// model that's been loaded this session reparses from here — no refetch.
+const modelCache = new Map();
+
 async function loadSelectedModel() {
   if (!modelsData) return;
   const entry = modelsData.models[parseInt(modelSelect.value, 10)] || modelsData.models[0];
+
+  const cached = modelCache.get(entry.file);
+  if (cached) {
+    setStatus(`Loading ${entry.file} (cached) …`);
+    loadFromBuffer(cached);
+    return;
+  }
+
+  modelSelect.disabled = true;
+  setStatus(`Loading ${entry.file} …`);
+  showProgress(0);
   try {
-    const res = await fetch(`data/${entry.file}`, { cache: "no-cache" });
-    if (!res.ok) {
-      setStatus(`Could not load ${entry.file}`, true);
-      return;
-    }
-    setStatus(`Loading ${entry.file} …`);
-    loadFromBuffer(await res.arrayBuffer());
+    const buffer = await fetchWithProgress(`data/${entry.file}`, (frac) => {
+      showProgress(frac);
+      if (frac >= 0) setStatus(`Loading ${entry.file} … ${Math.round(frac * 100)}%`);
+    });
+    modelCache.set(entry.file, buffer);
+    loadFromBuffer(buffer);
   } catch {
     setStatus(`Could not load ${entry.file}`, true);
+  } finally {
+    hideProgress();
+    modelSelect.disabled = false;
   }
 }
 
@@ -199,8 +247,28 @@ const shotBtn = document.getElementById("shot");
 const countEl = document.getElementById("count");
 const fpsEl = document.getElementById("fps");
 const statusEl = document.getElementById("status");
+const progressEl = document.getElementById("progress");
+const progressBar = document.getElementById("progress-bar");
 const hud = document.getElementById("hud");
 const toggleBtn = document.getElementById("toggle");
+
+// frac in [0,1] sets the bar; frac < 0 shows the indeterminate animation.
+function showProgress(frac) {
+  progressEl.style.display = "block";
+  if (frac < 0) {
+    progressEl.classList.add("indeterminate");
+    progressBar.style.width = "";
+  } else {
+    progressEl.classList.remove("indeterminate");
+    progressBar.style.width = `${Math.round(frac * 100)}%`;
+  }
+}
+
+function hideProgress() {
+  progressEl.style.display = "none";
+  progressEl.classList.remove("indeterminate");
+  progressBar.style.width = "0%";
+}
 
 toggleBtn.addEventListener("click", () => {
   const collapsed = hud.classList.toggle("collapsed");
