@@ -30,6 +30,14 @@ def array_x_center(cave_length: float) -> float:
     return cave_length / 2.0
 
 
+def _shell_spacing(params) -> float:
+    """Thin-shell plane spacing (mm): params.shell_curtain_spacing, or
+    2 * bead_diameter when that is 0 (auto)."""
+    if params.shell_curtain_spacing > 0.0:
+        return float(params.shell_curtain_spacing)
+    return 2.0 * float(params.bead_diameter)
+
+
 def curtain_planes(cave, params) -> np.ndarray:
     """Curtain plane X positions, fitted to the cave's actual X extent.
 
@@ -41,9 +49,18 @@ def curtain_planes(cave, params) -> np.ndarray:
     curtain geometry can never extend past the actual surface.
     """
     x_min, x_max = cave.x_extent()
-    spacing = params.curtain_spacing
 
-    if params.cave_type == "nurbs":
+    if params.curtain_mode == "shell":
+        # Shell mode always tiles the X extent at the thin-shell spacing,
+        # regardless of cave_type — an explicit curtain_count makes no sense
+        # for a dense thin shell.
+        spacing = _shell_spacing(params)
+        use_extent_fit = True
+    else:
+        spacing = params.curtain_spacing
+        use_extent_fit = (params.cave_type == "nurbs")
+
+    if use_extent_fit:
         length = x_max - x_min
         gaps = int(np.floor(length / spacing + 1e-9))   # spacing intervals that fit
         count = max(1, gaps + 1)
@@ -100,6 +117,49 @@ def _resolve_bead_spacing(boundaries: Sequence[tuple], params) -> float:
     return s_clamped
 
 
+def _greedy_overlap_filter(yz: np.ndarray, radius: float) -> np.ndarray:
+    """Greedy keep-order filter over (M, 2) points. Returns a boolean mask that
+    keeps a point only if no already-kept point lies within `radius` of it.
+
+    Uses a radius-sized spatial-hash grid so each point only tests its 3x3 cell
+    neighbourhood (two points within `radius` differ by at most one cell per
+    axis). Deterministic in input order — the caller passes points in the cave
+    sampler's fixed order, so reruns are bit-identical.
+    """
+    m = yz.shape[0]
+    keep = np.zeros(m, dtype=bool)
+    if m == 0:
+        return keep
+    inv = 1.0 / radius
+    r2 = radius * radius
+    cx_all = np.floor(yz[:, 0] * inv).astype(np.int64)
+    cz_all = np.floor(yz[:, 1] * inv).astype(np.int64)
+    cells = {}   # (cx, cz) -> list of kept-point row indices
+    for j in range(m):
+        cx, cz = int(cx_all[j]), int(cz_all[j])
+        py, pz = yz[j, 0], yz[j, 1]
+        clash = False
+        for dx in (-1, 0, 1):
+            for dcz in (-1, 0, 1):
+                bucket = cells.get((cx + dx, cz + dcz))
+                if not bucket:
+                    continue
+                for k in bucket:
+                    dy = py - yz[k, 0]
+                    dz = pz - yz[k, 1]
+                    if dy * dy + dz * dz < r2:
+                        clash = True
+                        break
+                if clash:
+                    break
+            if clash:
+                break
+        if not clash:
+            keep[j] = True
+            cells.setdefault((cx, cz), []).append(j)
+    return keep
+
+
 def build_curtains(cave, plane_xs: Sequence[float], params) -> Tuple[List[dict], float]:
     """For each curtain plane, sample beads in-plane outside the cave's cross-
     section boundary, fading outward.
@@ -151,6 +211,69 @@ def build_curtains(cave, plane_xs: Sequence[float], params) -> Tuple[List[dict],
             "points_3d": pts_3d,
         })
     return curtains, spacing
+
+
+def build_shell_curtains(cave, plane_xs: Sequence[float], params) -> Tuple[List[dict], float]:
+    """Thin-shell mode: snap the cave's Poisson surface cloud onto the thin
+    curtain planes (X -> nearest plane, Y/Z unchanged), then drop per-plane
+    overlaps within bead_diameter so each plane is a gappy, non-continuous line.
+
+    Returns (curtains, bead_spacing) with the SAME dict shape as build_curtains:
+      {'plane_x', 'points_2d' (M, 2)=(Y, Z), 'points_3d' (M, 3)=(plane_x, Y, Z)}
+    bead_spacing is the bead_diameter drop radius (reported in the run summary).
+    """
+    plane_xs = np.asarray(plane_xs, dtype=np.float64)
+    n_planes = int(plane_xs.shape[0])
+    radius = float(params.bead_diameter)
+
+    empty = lambda px: {
+        "plane_x": float(px),
+        "points_2d": np.zeros((0, 2), dtype=np.float64),
+        "points_3d": np.zeros((0, 3), dtype=np.float64),
+    }
+
+    pts = cave.sample_surface_points()              # (N, 3) world points
+    if pts.shape[0] == 0 or n_planes == 0:
+        return [empty(px) for px in plane_xs], radius
+
+    # Snap each bead to its nearest plane. Planes are uniformly spaced, so a
+    # single round gives the index; clamp ends-beads into the valid range.
+    # The snap trusts a uniform grid at _shell_spacing(params) — build plane_xs
+    # via curtain_planes (shell mode), which tiles the extent at exactly this
+    # spacing. Guard turns a mismatched/non-uniform grid into a clear error
+    # rather than silent bead misassignment.
+    x0 = float(plane_xs[0])
+    spacing = _shell_spacing(params)
+    if n_planes >= 2:
+        assert np.allclose(np.diff(plane_xs), spacing), (
+            "build_shell_curtains expects plane_xs uniformly spaced at "
+            "_shell_spacing(params)"
+        )
+    idx = np.round((pts[:, 0] - x0) / spacing).astype(np.int64)
+    idx = np.clip(idx, 0, n_planes - 1)
+
+    curtains: List[dict] = []
+    for i, px in enumerate(plane_xs):
+        yz = pts[idx == i][:, 1:3]                   # boolean index preserves order
+        if yz.shape[0] == 0:
+            curtains.append(empty(px))
+            continue
+        kept = _greedy_overlap_filter(yz, radius)
+        kept_yz = yz[kept]
+        if kept_yz.shape[0]:
+            pts_3d = np.column_stack([
+                np.full(kept_yz.shape[0], float(px), dtype=np.float64),
+                kept_yz[:, 0],
+                kept_yz[:, 1],
+            ])
+        else:
+            pts_3d = np.zeros((0, 3), dtype=np.float64)
+        curtains.append({
+            "plane_x": float(px),
+            "points_2d": kept_yz,
+            "points_3d": pts_3d,
+        })
+    return curtains, radius
 
 
 if __name__ == "__main__":
@@ -218,6 +341,56 @@ if __name__ == "__main__":
     total_b = sum(len(c["points_2d"]) for c in curtains_b)
     rel = abs(total_b - budget.target_bead_count) / budget.target_bead_count
     assert rel < 0.10, f"budget off: got {total_b}, target {budget.target_bead_count} ({rel:.1%})"
+
+    # --- shell mode: snap the cave cloud onto thin planes, drop overlaps ---
+    shell_params = PearlscapeParams()
+    shell_params.curtain_mode = "shell"
+    shell_params.cave_type = "cylinder"
+    shell_params.shell_curtain_spacing = 0.0          # auto -> 2 * bead_diameter
+    assert _shell_spacing(shell_params) == 2.0 * shell_params.bead_diameter
+
+    shell_cave = CylinderFBMCave(
+        radius=shell_params.cave_radius, length=2000.0, fbm_amplitude=900.0,
+        fbm_base_freq=0.00035, fbm_octaves=6, fbm_lacunarity=2.0, fbm_gain=0.55,
+        noise_seed=shell_params.noise_seed, target_samples=1000, center_z=1500.0,
+        noise_type="ridged", bead_spacing=12.0,        # Poisson cloud, 12mm spacing
+    )
+    source = shell_cave.sample_surface_points()
+    shell_planes = curtain_planes(shell_cave, shell_params)
+    # planes tile the X extent [0, 2000] at 2*bead_diameter = 12mm spacing
+    assert shell_planes.min() >= -1e-6 and shell_planes.max() <= 2000.0 + 1e-6
+    assert np.allclose(np.diff(shell_planes), 12.0)
+
+    shell_curtains, shell_spacing_used = build_shell_curtains(
+        shell_cave, shell_planes, shell_params)
+    assert shell_spacing_used == shell_params.bead_diameter
+
+    # every kept bead lies exactly on its plane; points_2d/points_3d agree
+    for c in shell_curtains:
+        if c["points_3d"].shape[0]:
+            assert np.allclose(c["points_3d"][:, 0], c["plane_x"])
+            assert np.array_equal(c["points_3d"][:, 1], c["points_2d"][:, 0])
+            assert np.array_equal(c["points_3d"][:, 2], c["points_2d"][:, 1])
+
+    # no two kept beads on a plane are closer than bead_diameter in Y/Z
+    bd = shell_params.bead_diameter
+    for c in shell_curtains:
+        yz = c["points_2d"]
+        if yz.shape[0] >= 2:
+            d2 = ((yz[:, None, :] - yz[None, :, :]) ** 2).sum(axis=2)
+            np.fill_diagonal(d2, np.inf)
+            assert d2.min() >= bd * bd - 1e-6, f"overlap on plane: {np.sqrt(d2.min()):.3f}"
+
+    shell_total = sum(c["points_2d"].shape[0] for c in shell_curtains)
+    assert 0 < shell_total <= source.shape[0], (shell_total, source.shape[0])
+
+    # determinism: same params -> identical kept beads
+    shell_curtains2, _ = build_shell_curtains(shell_cave, shell_planes, shell_params)
+    assert all(np.array_equal(a["points_2d"], b["points_2d"])
+               for a, b in zip(shell_curtains, shell_curtains2)), "shell not deterministic"
+
+    print(f"shell: {len(shell_planes)} planes, "
+          f"{shell_total}/{source.shape[0]} beads kept")
 
     print(f"5 curtains, {total} beads, deterministic, seeds distinct")
     print(f"curtain_planes: nurbs->{len(pn)} planes, cylinder->{len(pc)} (filtered)")

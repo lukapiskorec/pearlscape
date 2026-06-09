@@ -68,6 +68,16 @@ class PearlscapeParams:
     curtain_width: float = 2500.0
     curtain_height: float = 3000.0
     cave_center_z: float = 1500.0   # cave centerline elevation
+    # Curtain generation mode:
+    #   "band"  -> build_curtains: a thick band sampled outward from each cross-
+    #              section boundary (the original volumetric curtains).
+    #   "shell" -> build_shell_curtains: snap the raw cave Poisson surface cloud
+    #              onto densely-spaced thin planes (a thin cuttable shell that
+    #              mirrors the default cave look). Leaves band logic untouched.
+    curtain_mode: str = "shell"
+    # Thin-shell plane spacing (mm); used only when curtain_mode == "shell".
+    # 0 = auto, resolved to 2 * bead_diameter at use.
+    shell_curtain_spacing: float = 0.0
 
     # --- Beads ---
     total_surface_samples: int = 300_000
@@ -115,7 +125,7 @@ class PearlscapeParams:
     #                   any display_mode.
     #   "export_cave_ply" -> raw cave cloud + a single binary PLY of it (no
     #                   curtains); also renders to the viewport.
-    pipeline_mode: str = "export_cave_ply"
+    pipeline_mode: str = "export_ply"
     display_mode: str = "sprites"   # "pointcloud" | "instances" | "sprites"
     instance_sphere_subd: int = 2
     pdf_page_size: str = "A1"
@@ -130,6 +140,8 @@ class PearlscapeParams:
             f"({self.cave_radius}) to avoid pinching the cave shut."
         )
         assert self.curtain_count >= 2
+        assert self.curtain_mode in ("band", "shell")
+        assert self.shell_curtain_spacing >= 0.0
         assert self.noise_type in ("fbm", "ridged")
         assert self.pipeline_mode in (
             "cave", "curtains", "export", "export_ply", "export_cave_ply"
@@ -148,6 +160,7 @@ class PearlscapeParams:
         assert self.color_dither >= 0.0
         assert self.curtain_band_thickness > 0.0
         assert self.curtain_band_fade >= 0.0
+        assert self.bead_diameter > 0.0
         assert self.bead_min_spacing >= self.bead_diameter, (
             f"bead_min_spacing ({self.bead_min_spacing}) must be >= bead_diameter "
             f"({self.bead_diameter}) so placed beads cannot physically overlap."

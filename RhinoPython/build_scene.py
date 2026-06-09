@@ -22,7 +22,9 @@ import numpy as np
 
 from pearlscape import PearlscapeParams
 from pearlscape.cave import make_default_cave
-from pearlscape.curtains import build_curtains, curtain_planes
+from pearlscape.curtains import (
+    build_curtains, build_shell_curtains, curtain_planes, _shell_spacing,
+)
 from pearlscape import color as color_mod
 from pearlscape import display
 from pearlscape import export as export_mod
@@ -77,58 +79,129 @@ def _export_ply_bundle(beads, bead_colors, field, dither_rand, params) -> None:
 
 
 def print_run_summary(beads: np.ndarray, params, n_curtains: int, bead_spacing: float) -> None:
-    """Print a config + result summary block for the beads just generated.
+    """Print a config + result summary, listing ONLY the parameters that
+    actually affected this run.
 
-    `beads` is the (N, 3) array of actual bead positions (cave cloud in "cave"
-    mode, projected per-curtain beads otherwise) — not the NURBS surface.
-    `n_curtains` is the actual number of curtain planes built (derived from the
-    surface extent in "nurbs" mode, not necessarily params.curtain_count).
-    `bead_spacing` is the in-plane spacing actually used (the budget solver may
-    override params.bead_min_spacing).
+    Sections are gated by pipeline_mode, cave_type, and curtain_mode so the
+    output never shows params the selected mode ignores (e.g. band-band-only
+    params in shell mode, or curtain params in a raw-cave run).
+
+    `beads` is the (N, 3) array of generated bead positions. `n_curtains` and
+    `bead_spacing` are used only for curtain runs: the actual number of planes
+    built (derived from the surface extent in "nurbs" mode, not necessarily
+    params.curtain_count) and the in-plane spacing the budget solver resolved.
     """
     n = int(beads.shape[0])
+    is_cave_run = params.pipeline_mode in ("cave", "export_cave_ply")
+    is_curtain_run = params.pipeline_mode in ("curtains", "export", "export_ply")
+    # Cave runs AND shell-mode curtains both build the cloud from
+    # cave.sample_surface_points(), so the surface-sampling params apply to both.
+    samples_surface = is_cave_run or (is_curtain_run and params.curtain_mode == "shell")
+
     print("")
     print("--- run summary ---")
     print("")
-    print("curtain params (mm):")
-    print(f"  curtain_count = {n_curtains}")
-    print(f"  curtain_spacing = {params.curtain_spacing:g}")
-    print(f"  curtain_band_thickness = {params.curtain_band_thickness:g}")
-    print(f"  curtain_band_fade = {params.curtain_band_fade:g}")
-    print(f"  bead_min_spacing = {bead_spacing:g}")
+    print(f"pipeline_mode: {params.pipeline_mode}")
+    if params.display_mode == "instances":
+        print(f"display_mode: instances (sphere subd {params.instance_sphere_subd})")
+    else:
+        print(f"display_mode: {params.display_mode}")
     print("")
-    print(f"beads: {n:,}")
-    print(f"bead_diameter: {params.bead_diameter:g}")
+
+    # --- cave geometry ---
+    print("cave geometry (mm):")
+    print(f"  cave_type = {params.cave_type}")
+    print(f"  cave_radius = {params.cave_radius:g}")
+    print(f"  cave_length = {params.cave_length:g}")
+    print(f"  cave_center_z = {params.cave_center_z:g}")
+    if params.cave_type == "nurbs":
+        print(f"  nurbs_surface_source = {params.nurbs_surface_source}")
+        print(f"  nurbs_grid = {params.nurbs_grid_u} x {params.nurbs_grid_v}")
+        if params.nurbs_surface_source == "rebuild":
+            print(f"  nurbs_sections = {params.nurbs_sections}")
+            print(f"  nurbs_section_points = {params.nurbs_section_points}")
+            print(f"  nurbs_radius_jitter = {params.nurbs_radius_jitter:g} "
+                  f"@ {params.nurbs_radius_jitter_freq:g} cyc/mm")
+            print(f"  nurbs_centerline_amp = {params.nurbs_centerline_amp:g} "
+                  f"@ {params.nurbs_centerline_freq:g} cyc/mm")
+            print(f"  nurbs_shape_seed = {params.nurbs_shape_seed}")
     print("")
+
+    # --- wall displacement noise ---
+    print("wall noise:")
+    print(f"  noise_type = {params.noise_type}")
+    print(f"  amplitude = {params.fbm_amplitude:g}")
+    print(f"  base_freq = {params.fbm_base_freq:g}")
+    print(f"  octaves = {params.fbm_octaves}")
+    print(f"  lacunarity = {params.fbm_lacunarity:g}")
+    print(f"  gain = {params.fbm_gain:g}")
+    print(f"  seed = {params.noise_seed}")
+    print("")
+
+    # --- surface sampling (raw cave cloud / shell-mode source) ---
+    if samples_surface:
+        print("surface sampling:")
+        if params.cave_bead_spacing > 0.0:
+            print(f"  cave_bead_spacing = {params.cave_bead_spacing:g} (Poisson min spacing)")
+        else:
+            print(f"  total_surface_samples = {params.total_surface_samples:,} "
+                  f"(cave_bead_spacing = 0)")
+        print("")
+
+    # --- curtains (mode-specific) ---
+    if is_curtain_run:
+        print("curtains (mm):")
+        print(f"  curtain_mode = {params.curtain_mode}")
+        print(f"  curtain_count = {n_curtains} (planes built)")
+        print(f"  curtain_width x height = "
+              f"{params.curtain_width:g} x {params.curtain_height:g}")
+        if params.curtain_mode == "shell":
+            auto = "  (auto = 2 x bead_diameter)" if params.shell_curtain_spacing <= 0.0 else ""
+            print(f"  shell_curtain_spacing = {_shell_spacing(params):g}{auto}")
+            print(f"  overlap drop radius = bead_diameter ({params.bead_diameter:g})")
+        else:
+            print(f"  curtain_spacing = {params.curtain_spacing:g}")
+            print(f"  curtain_band_thickness = {params.curtain_band_thickness:g}")
+            print(f"  curtain_band_fade = {params.curtain_band_fade:g}")
+            solved = "  (solved from target_bead_count)" if params.target_bead_count > 0 else ""
+            print(f"  bead_min_spacing = {bead_spacing:g}{solved}")
+            if params.target_bead_count > 0:
+                print(f"  target_bead_count = {params.target_bead_count:,}")
+        print("")
+
+    # --- result ---
+    print("result:")
+    print(f"  beads = {n:,}")
+    print(f"  bead_diameter = {params.bead_diameter:g}")
     if n:
         lo = beads.min(axis=0)
         hi = beads.max(axis=0)
-        print("bead bbox (mm):")
-        print(f"  X {float(hi[0]-lo[0]):.0f}")
-        print(f"  Y {float(hi[1]-lo[1]):.0f}")
-        print(f"  Z {float(hi[2]-lo[2]):.0f}")
+        print(f"  bbox (mm): X {float(hi[0]-lo[0]):.0f}  "
+              f"Y {float(hi[1]-lo[1]):.0f}  Z {float(hi[2]-lo[2]):.0f}")
     else:
-        print("bead bbox (mm): n/a (no beads)")
+        print("  bbox (mm): n/a (no beads)")
     print("")
-    print(f"noise type: {params.noise_type}")
-    print("")
-    print("noise params:")
-    print(f"  amplitude = {params.fbm_amplitude}")
-    print(f"  base_freq = {params.fbm_base_freq}")
-    print(f"  octaves = {params.fbm_octaves}")
-    print(f"  lacunarity = {params.fbm_lacunarity}")
-    print(f"  gain = {params.fbm_gain}")
-    print(f"  seed = {params.noise_seed}")
-    print("")
-    print(f"palette: {palettes.name_of(params.palette)} ({len(params.palette)} colours)")
-    print("")
-    print("colour params:")
-    print(f"  base_freq = {params.color_base_freq}")
+
+    # --- colour ---
+    print("colour:")
+    print(f"  palette = {palettes.name_of(params.palette)} ({len(params.palette)} colours)")
+    print(f"  base_freq = {params.color_base_freq:g}")
     print(f"  octaves = {params.color_fbm_octaves}")
-    print(f"  lacunarity = {params.color_fbm_lacunarity}")
-    print(f"  gain = {params.color_fbm_gain}")
+    print(f"  lacunarity = {params.color_fbm_lacunarity:g}")
+    print(f"  gain = {params.color_fbm_gain:g}")
     print(f"  seed = {params.color_noise_seed}")
-    print(f"  dither = {params.color_dither}")
+    print(f"  dither = {params.color_dither:g}")
+
+    # --- export targets ---
+    if params.pipeline_mode == "export":
+        print("")
+        print("pdf export:")
+        print(f"  pdf_page_size = {params.pdf_page_size}")
+        print(f"  pdf_output_dir = {params.pdf_output_dir}")
+    elif params.pipeline_mode in ("export_ply", "export_cave_ply"):
+        print("")
+        print("ply export:")
+        print(f"  ply_output_path = {params.ply_output_path}")
 
 
 def main() -> None:
@@ -178,7 +251,9 @@ def main() -> None:
             dither_rand = color_mod.dither_randoms(pts.shape[0], params.color_noise_seed)
             _export_ply_bundle(pts, colors, field, dither_rand, params)
 
-        print_run_summary(pts, params, params.curtain_count, params.bead_min_spacing)
+        # n_curtains / bead_spacing are unused for raw-cave runs (the summary
+        # gates the curtain section off pipeline_mode).
+        print_run_summary(pts, params, 0, 0.0)
         return
 
     # Modes "curtains" and "export": sample each curtain plane directly outward
@@ -186,7 +261,10 @@ def main() -> None:
     # produced in these modes — only the cross-section boundary is needed.
     t0 = time.time()
     plane_xs = curtain_planes(cave, params)
-    curtains, bead_spacing = build_curtains(cave, plane_xs, params)
+    if params.curtain_mode == "shell":
+        curtains, bead_spacing = build_shell_curtains(cave, plane_xs, params)
+    else:
+        curtains, bead_spacing = build_curtains(cave, plane_xs, params)
     total = sum(len(c["points_2d"]) for c in curtains)
     print(f"Curtains: {len(curtains)} planes, {total} beads in {time.time()-t0:.2f}s")
 
