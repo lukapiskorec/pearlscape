@@ -356,10 +356,14 @@ class SpriteConduit(rd.DisplayConduit):
         e.IncludeBoundingBox(self._bbox)
 
     def PostDrawObjects(self, e) -> None:
-        # sizeInWorldSpace=True -> diameter is in mm and scales with distance.
+        # DrawSprites' world-space size is the sprite RADIUS (half-extent), not
+        # the diameter — passing the full diameter draws beads at 2x their true
+        # size. Pass half so the on-screen bead diameter equals bead_diameter,
+        # matching render_instances' real spheres and the three.js viewer.
         # Pass 1: bead body, tinted per-point. Pass 2: pure-white specular on top.
-        e.Display.DrawSprites(self._bitmap, self._sprites, self._diameter, True)
-        e.Display.DrawSprites(self._spec_bitmap, self._spec_list, self._diameter, True)
+        half = self._diameter / 2.0
+        e.Display.DrawSprites(self._bitmap, self._sprites, half, True)
+        e.Display.DrawSprites(self._spec_bitmap, self._spec_list, half, True)
 
 
 def clear_sprite_conduit() -> None:
