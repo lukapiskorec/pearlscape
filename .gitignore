@@ -8,7 +8,14 @@ build/
 
 # Pearlscape exports
 RhinoPython/exports/
-web/data/
+
+# Local PLY exports stay out of git, but the web explorer ships a fixed set of
+# models so the hosted site has something to load on startup.
+web/data/*
+!web/data/models.json
+!web/data/palettes.json
+!web/data/pearlscape_baseline.ply
+!web/data/pearlscape_max_bridge.ply
 
 # Environment variables
 .env

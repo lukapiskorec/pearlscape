@@ -42,6 +42,7 @@ const material = new THREE.ShaderMaterial({
 
 let points = null;
 let palettesData = null; // { default, palettes:[{name, colors}] }
+let modelsData = null; // { default, models:[{name, file}] }
 
 // --- Sizing ----------------------------------------------------------------
 function resize() {
@@ -149,14 +150,42 @@ function loadFromBuffer(arrayBuffer) {
   countEl.textContent = ply.count.toLocaleString();
 }
 
-async function tryAutoLoad() {
+// --- Models ----------------------------------------------------------------
+// Bundled models listed in data/models.json. Absent the manifest, the dropdown
+// stays disabled and the user loads a file via the picker or drag-and-drop.
+async function loadModels() {
   try {
-    const res = await fetch("data/pearlscape.ply", { cache: "no-cache" });
-    if (!res.ok) return;
-    setStatus("Loading data/pearlscape.ply …");
+    const res = await fetch("data/models.json", { cache: "no-cache" });
+    if (!res.ok) return null;
+    const data = await res.json();
+    modelSelect.innerHTML = "";
+    data.models.forEach((m, i) => {
+      const opt = document.createElement("option");
+      opt.value = String(i);
+      opt.textContent = m.name;
+      if (m.file === data.default) opt.selected = true;
+      modelSelect.appendChild(opt);
+    });
+    modelSelect.disabled = data.models.length === 0;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+async function loadSelectedModel() {
+  if (!modelsData) return;
+  const entry = modelsData.models[parseInt(modelSelect.value, 10)] || modelsData.models[0];
+  try {
+    const res = await fetch(`data/${entry.file}`, { cache: "no-cache" });
+    if (!res.ok) {
+      setStatus(`Could not load ${entry.file}`, true);
+      return;
+    }
+    setStatus(`Loading ${entry.file} …`);
     loadFromBuffer(await res.arrayBuffer());
   } catch {
-    /* no auto file; wait for the user */
+    setStatus(`Could not load ${entry.file}`, true);
   }
 }
 
@@ -165,6 +194,7 @@ const fileInput = document.getElementById("file");
 const sizeSlider = document.getElementById("size");
 const sizeVal = document.getElementById("sizeVal");
 const paletteSelect = document.getElementById("palette");
+const modelSelect = document.getElementById("model");
 const shotBtn = document.getElementById("shot");
 const countEl = document.getElementById("count");
 const fpsEl = document.getElementById("fps");
@@ -197,6 +227,7 @@ sizeSlider.addEventListener("input", () => {
 });
 
 paletteSelect.addEventListener("change", applySelectedPalette);
+modelSelect.addEventListener("change", loadSelectedModel);
 
 function timestamp() {
   // Local time, filesystem-safe (no colons): YYYY-MM-DD_HH-MM-SS.
@@ -245,5 +276,10 @@ function animate(now) {
 
 resize();
 sizeVal.textContent = parseFloat(sizeSlider.value).toFixed(1);
-loadPalettes().then(tryAutoLoad);
+loadPalettes()
+  .then(loadModels)
+  .then((m) => {
+    modelsData = m;
+    if (m && m.models.length) loadSelectedModel();
+  });
 requestAnimationFrame(animate);

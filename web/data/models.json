@@ -1,0 +1,7 @@
+{
+  "default": "pearlscape_baseline.ply",
+  "models": [
+    { "name": "Baseline", "file": "pearlscape_baseline.ply" },
+    { "name": "Max bridge", "file": "pearlscape_max_bridge.ply" }
+  ]
+}
