@@ -159,11 +159,16 @@ async function loadModels() {
     if (!res.ok) return null;
     const data = await res.json();
     modelSelect.innerHTML = "";
+    // Start with nothing loaded so we don't fetch a model the user didn't ask for.
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Select a model …";
+    placeholder.selected = true;
+    modelSelect.appendChild(placeholder);
     data.models.forEach((m, i) => {
       const opt = document.createElement("option");
       opt.value = String(i);
       opt.textContent = m.name;
-      if (m.file === data.default) opt.selected = true;
       modelSelect.appendChild(opt);
     });
     modelSelect.disabled = data.models.length === 0;
@@ -178,7 +183,7 @@ async function loadModels() {
 // response isn't streamable. onProgress receives a 0–1 fraction, or -1 when the
 // total size is unknown.
 async function fetchWithProgress(url, onProgress) {
-  const res = await fetch(url, { cache: "no-cache" });
+  const res = await fetch(url); // let the browser disk-cache the model across reloads
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const total = Number(res.headers.get("Content-Length")) || 0;
   if (!res.body || !total) {
@@ -193,7 +198,9 @@ async function fetchWithProgress(url, onProgress) {
     if (done) break;
     chunks.push(value);
     received += value.length;
-    onProgress(received / total);
+    // Clamp: with gzip the server's Content-Length is the compressed size while
+    // the stream yields decompressed bytes, so received can exceed total.
+    onProgress(Math.min(received / total, 1));
   }
   const out = new Uint8Array(received);
   let offset = 0;
@@ -209,8 +216,9 @@ async function fetchWithProgress(url, onProgress) {
 const modelCache = new Map();
 
 async function loadSelectedModel() {
-  if (!modelsData) return;
-  const entry = modelsData.models[parseInt(modelSelect.value, 10)] || modelsData.models[0];
+  if (!modelsData || modelSelect.value === "") return; // placeholder selected
+  const entry = modelsData.models[parseInt(modelSelect.value, 10)];
+  if (!entry) return;
 
   const cached = modelCache.get(entry.file);
   if (cached) {
@@ -348,6 +356,7 @@ loadPalettes()
   .then(loadModels)
   .then((m) => {
     modelsData = m;
-    if (m && m.models.length) loadSelectedModel();
+    // No model auto-loads; the user picks one from the dropdown.
+    if (m && m.models.length) setStatus("Select a model to load.");
   });
 requestAnimationFrame(animate);
