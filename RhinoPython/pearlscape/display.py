@@ -24,6 +24,7 @@ CURTAINS_LAYER = "Curtains"
 CAVE_REFERENCE_LAYER = "CaveReference"
 CURTAIN_PLANES_LAYER = "CurtainPlanes"
 CAVE_SURFACE_LAYER = "CaveSurface"
+CAVE_POINTS_LAYER = "CavePoints"
 
 
 def _ensure_layer(path: str, color: Optional[sd.Color] = None) -> int:
@@ -187,6 +188,41 @@ def find_cave_surface() -> Optional[rg.NurbsSurface]:
     if isinstance(geo, rg.Surface):
         return geo.ToNurbsSurface()
     return None
+
+
+def find_cave_points() -> Optional[np.ndarray]:
+    """Return all points on Pearlscape::CavePoints as an (N, 3) array, or None.
+
+    Aggregates every point on the layer regardless of how it was authored: each
+    PointCloud object is expanded to its member points, and each individual Point
+    object contributes its location. Coordinates are world coordinates, used as-is.
+    Returns None if the layer is missing or holds no point geometry.
+    """
+    doc = sc.doc
+    layer_path = f"{PEARLSCAPE_PARENT_LAYER}::{CAVE_POINTS_LAYER}"
+    idx = doc.Layers.FindByFullPath(layer_path, -1)
+    if idx < 0:
+        return None
+    layer = doc.Layers[idx]
+    objs = doc.Objects.FindByLayer(layer)
+    if not objs:
+        return None
+
+    rows: List[List[float]] = []
+    for obj in objs:
+        geo = obj.Geometry
+        if isinstance(geo, rg.PointCloud):
+            for item in geo:
+                p = item.Location
+                rows.append([p.X, p.Y, p.Z])
+        elif isinstance(geo, rg.Point):
+            p = geo.Location
+            rows.append([p.X, p.Y, p.Z])
+        # Other geometry on the layer is ignored.
+
+    if not rows:
+        return None
+    return np.array(rows, dtype=np.float64)
 
 
 def _build_bead_block_definition(diameter: float, subd: int, name: str = "PearlscapeBead") -> int:

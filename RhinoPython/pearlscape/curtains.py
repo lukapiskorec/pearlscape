@@ -278,7 +278,7 @@ def build_shell_curtains(cave, plane_xs: Sequence[float], params) -> Tuple[List[
 
 if __name__ == "__main__":
     # Headless smoke test on the pure-numpy cylinder cave.
-    from pearlscape.cave import CylinderFBMCave
+    from pearlscape.cave import CylinderFBMCave, PointCloudCave
     from pearlscape.params import PearlscapeParams
 
     params = PearlscapeParams()   # uses default band params (120 / 1.5 / 6)
@@ -391,6 +391,64 @@ if __name__ == "__main__":
 
     print(f"shell: {len(shell_planes)} planes, "
           f"{shell_total}/{source.shape[0]} beads kept")
+
+    # --- points cave: an imported cloud routed through the shell path ---
+    # Reuse the shell_cave's generated cloud as a stand-in for the CavePoints
+    # layer, then drive build_shell_curtains through PointCloudCave. The point of
+    # this test is that an arbitrary cloud snaps onto the thin planes with the same
+    # invariants (on-plane, non-overlapping, deterministic) as the generated cave.
+    pts_params = PearlscapeParams()
+    pts_params.cave_type = "points"
+    pts_params.curtain_mode = "shell"
+    pts_params.shell_curtain_spacing = 0.0            # auto -> 2 * bead_diameter
+
+    pts_cave = PointCloudCave(source)                 # `source` = shell_cave's cloud
+    assert pts_cave.x_extent() == (float(source[:, 0].min()), float(source[:, 0].max()))
+
+    pts_planes = curtain_planes(pts_cave, pts_params)
+    assert np.allclose(np.diff(pts_planes), 2.0 * pts_params.bead_diameter)
+    x_lo, x_hi = pts_cave.x_extent()
+    assert pts_planes.min() >= x_lo - 1e-6 and pts_planes.max() <= x_hi + 1e-6
+
+    pts_curtains, pts_spacing = build_shell_curtains(pts_cave, pts_planes, pts_params)
+    assert pts_spacing == pts_params.bead_diameter
+
+    bd_p = pts_params.bead_diameter
+    for c in pts_curtains:
+        yz = c["points_2d"]
+        if c["points_3d"].shape[0]:
+            assert np.allclose(c["points_3d"][:, 0], c["plane_x"])
+        if yz.shape[0] >= 2:
+            d2 = ((yz[:, None, :] - yz[None, :, :]) ** 2).sum(axis=2)
+            np.fill_diagonal(d2, np.inf)
+            assert d2.min() >= bd_p * bd_p - 1e-6, f"overlap: {np.sqrt(d2.min()):.3f}"
+
+    pts_curtains2, _ = build_shell_curtains(pts_cave, pts_planes, pts_params)
+    assert all(np.array_equal(a["points_2d"], b["points_2d"])
+               for a, b in zip(pts_curtains, pts_curtains2)), "points cave not deterministic"
+
+    pts_total = sum(c["points_2d"].shape[0] for c in pts_curtains)
+    assert 0 < pts_total <= source.shape[0]
+
+    # sample_surface_points returns a copy (mutating it must not touch the source)
+    grabbed = pts_cave.sample_surface_points()
+    grabbed[0, 0] += 123.0
+    assert pts_cave.points[0, 0] != grabbed[0, 0]
+
+    # inner_boundary is unsupported for a raw cloud; empty clouds are rejected.
+    try:
+        pts_cave.inner_boundary(0.0, 720)
+        raise AssertionError("inner_boundary should raise for PointCloudCave")
+    except NotImplementedError:
+        pass
+    try:
+        PointCloudCave(np.zeros((0, 3)))
+        raise AssertionError("empty cloud should raise")
+    except ValueError:
+        pass
+
+    print(f"points cave: {len(pts_planes)} planes, "
+          f"{pts_total}/{source.shape[0]} beads kept (shell-routed)")
 
     print(f"5 curtains, {total} beads, deterministic, seeds distinct")
     print(f"curtain_planes: nurbs->{len(pn)} planes, cylinder->{len(pc)} (filtered)")

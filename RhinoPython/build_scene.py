@@ -95,8 +95,12 @@ def print_run_summary(beads: np.ndarray, params, n_curtains: int, bead_spacing: 
     is_cave_run = params.pipeline_mode in ("cave", "export_cave_ply")
     is_curtain_run = params.pipeline_mode in ("curtains", "export", "export_ply")
     # Cave runs AND shell-mode curtains both build the cloud from
-    # cave.sample_surface_points(), so the surface-sampling params apply to both.
-    samples_surface = is_cave_run or (is_curtain_run and params.curtain_mode == "shell")
+    # cave.sample_surface_points(), so the surface-sampling params apply to both —
+    # EXCEPT for the points cave, whose cloud is imported, not Poisson-sampled.
+    samples_surface = (
+        (is_cave_run or (is_curtain_run and params.curtain_mode == "shell"))
+        and params.cave_type != "points"
+    )
 
     print("")
     print("--- run summary ---")
@@ -109,11 +113,18 @@ def print_run_summary(beads: np.ndarray, params, n_curtains: int, bead_spacing: 
     print("")
 
     # --- cave geometry ---
+    # An imported point cloud (cave_type "points") defines the geometry itself, so
+    # the cylinder/nurbs radius/length/center_z and the wall-displacement noise
+    # below don't apply and are omitted.
+    is_points_cave = params.cave_type == "points"
     print("cave geometry (mm):")
     print(f"  cave_type = {params.cave_type}")
-    print(f"  cave_radius = {params.cave_radius:g}")
-    print(f"  cave_length = {params.cave_length:g}")
-    print(f"  cave_center_z = {params.cave_center_z:g}")
+    if is_points_cave:
+        print(f"  point source = Pearlscape::CavePoints (used as-is)")
+    else:
+        print(f"  cave_radius = {params.cave_radius:g}")
+        print(f"  cave_length = {params.cave_length:g}")
+        print(f"  cave_center_z = {params.cave_center_z:g}")
     if params.cave_type == "nurbs":
         print(f"  nurbs_surface_source = {params.nurbs_surface_source}")
         print(f"  nurbs_grid = {params.nurbs_grid_u} x {params.nurbs_grid_v}")
@@ -127,16 +138,17 @@ def print_run_summary(beads: np.ndarray, params, n_curtains: int, bead_spacing: 
             print(f"  nurbs_shape_seed = {params.nurbs_shape_seed}")
     print("")
 
-    # --- wall displacement noise ---
-    print("wall noise:")
-    print(f"  noise_type = {params.noise_type}")
-    print(f"  amplitude = {params.fbm_amplitude:g}")
-    print(f"  base_freq = {params.fbm_base_freq:g}")
-    print(f"  octaves = {params.fbm_octaves}")
-    print(f"  lacunarity = {params.fbm_lacunarity:g}")
-    print(f"  gain = {params.fbm_gain:g}")
-    print(f"  seed = {params.noise_seed}")
-    print("")
+    # --- wall displacement noise (cylinder/nurbs surfaces only) ---
+    if not is_points_cave:
+        print("wall noise:")
+        print(f"  noise_type = {params.noise_type}")
+        print(f"  amplitude = {params.fbm_amplitude:g}")
+        print(f"  base_freq = {params.fbm_base_freq:g}")
+        print(f"  octaves = {params.fbm_octaves}")
+        print(f"  lacunarity = {params.fbm_lacunarity:g}")
+        print(f"  gain = {params.fbm_gain:g}")
+        print(f"  seed = {params.noise_seed}")
+        print("")
 
     # --- surface sampling (raw cave cloud / shell-mode source) ---
     if samples_surface:

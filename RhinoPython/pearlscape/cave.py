@@ -173,16 +173,64 @@ class CylinderFBMCave:
         return (0.0, float(self.length))
 
 
+class PointCloudCave:
+    """CaveSurface backed by an imported point cloud (the Pearlscape::CavePoints
+    layer). The points are used as-is — the cloud IS the cave surface. Pure numpy:
+    the Rhino read happens in make_default_cave; this class only holds the array.
+
+    Only the shell curtain path consumes this (sample_surface_points + x_extent);
+    inner_boundary (band mode) has no analytic meaning for a raw cloud and raises.
+    """
+
+    def __init__(self, points: np.ndarray) -> None:
+        pts = np.asarray(points, dtype=np.float64)
+        if pts.ndim != 2 or pts.shape[1] != 3:
+            raise ValueError(f"points must be (N, 3); got {pts.shape}")
+        if pts.shape[0] == 0:
+            raise ValueError("PointCloudCave got an empty point cloud")
+        self.points = pts
+
+    def sample_surface_points(self) -> np.ndarray:
+        # Return a copy so downstream snapping/filtering can't mutate the source.
+        # (Future fbm displacement will be applied here, before returning.)
+        return self.points.copy()
+
+    def x_extent(self):
+        xs = self.points[:, 0]
+        return (float(xs.min()), float(xs.max()))
+
+    def inner_boundary(self, plane_x: float, n_angular: int):
+        raise NotImplementedError(
+            "PointCloudCave supports shell curtains only; band mode (inner_boundary) "
+            "needs an analytic cross-section the raw cloud doesn't provide."
+        )
+
+
 def make_default_cave(params):
     """Build the cave selected by params.cave_type.
 
     "cylinder" -> CylinderFBMCave (pure numpy, Rhino-free).
     "nurbs"    -> NurbsLoftCave (imported lazily; needs Rhino for the loft).
+    "points"   -> PointCloudCave from the Pearlscape::CavePoints layer (needs Rhino
+                  to read the layer).
     """
     if params.cave_type == "nurbs":
         # Lazy import so the cylinder path stays importable outside Rhino.
         from pearlscape.nurbs_cave import make_nurbs_cave
         return make_nurbs_cave(params)
+
+    if params.cave_type == "points":
+        # Lazy import so the cylinder/headless path stays Rhino-free.
+        from pearlscape import display
+        pts = display.find_cave_points()
+        if pts is None or pts.shape[0] == 0:
+            raise RuntimeError(
+                "cave_type='points' but no points found on the "
+                "Pearlscape::CavePoints layer. Add a PointCloud or Point objects "
+                "to that layer (aligned with the cave X axis) and rerun."
+            )
+        print(f"Cave: read {pts.shape[0]:,} points from Pearlscape::CavePoints")
+        return PointCloudCave(pts)
 
     return CylinderFBMCave(
         radius=params.cave_radius,

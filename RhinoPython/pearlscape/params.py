@@ -1,8 +1,20 @@
+#! python 3
 """Single source of truth for all tunable parameters.
 
 Units: all lengths in millimeters (Rhino document units). Frequencies are in
 cycles per millimeter. A value of 1200 means 1.2 metres.
+
+Not an entry point — F5 build_scene.py to generate. The sys.path shim below only
+makes a direct F5 of this file resolve the `pearlscape` package (matching the
+sibling modules), so it errors-free instead of ModuleNotFoundError.
 """
+
+import os
+import sys
+
+_PKG_PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PKG_PARENT not in sys.path:
+    sys.path.insert(0, _PKG_PARENT)
 
 from dataclasses import dataclass, field
 from typing import List, Tuple
@@ -43,7 +55,9 @@ class PearlscapeParams:
     # --- Cave geometry (NURBS, used when cave_type == "nurbs") ---
     # "cylinder" -> CylinderFBMCave (radial noise on a cylinder).
     # "nurbs"    -> NurbsLoftCave (lofted irregular tube, sampled + displaced).
-    cave_type: str = "nurbs"
+    # "points" -> PointCloudCave: beads sourced directly from the points on the
+    #             Pearlscape::CavePoints layer (shell curtain_mode only).
+    cave_type: str = "points"
     # "rebuild" -> loft from the nurbs_* params each run (replaces the surface
     #              on the Pearlscape::CaveSurface layer).
     # "reuse"   -> sample the existing (possibly hand-edited) surface on that
@@ -125,7 +139,7 @@ class PearlscapeParams:
     #                   any display_mode.
     #   "export_cave_ply" -> raw cave cloud + a single binary PLY of it (no
     #                   curtains); also renders to the viewport.
-    pipeline_mode: str = "export_ply"
+    pipeline_mode: str = "curtains"
     display_mode: str = "sprites"   # "pointcloud" | "instances" | "sprites"
     instance_sphere_subd: int = 2
     pdf_page_size: str = "A1"
@@ -151,7 +165,11 @@ class PearlscapeParams:
             "display_mode='sprites' is screen-only and cannot drive PDF export; "
             "use 'pointcloud' or 'instances' for pipeline_mode='export'."
         )
-        assert self.cave_type in ("cylinder", "nurbs")
+        assert self.cave_type in ("cylinder", "nurbs", "points")
+        assert not (self.cave_type == "points" and self.curtain_mode == "band"), (
+            "cave_type='points' supports curtain_mode='shell' only; a raw point "
+            "cloud has no analytic cross-section for the band sampler."
+        )
         assert self.nurbs_surface_source in ("rebuild", "reuse")
         assert self.nurbs_sections >= 2
         assert self.nurbs_section_points >= 4   # periodic degree-3 ring needs >= 4 pts
