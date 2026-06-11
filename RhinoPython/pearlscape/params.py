@@ -57,7 +57,7 @@ class PearlscapeParams:
     # "nurbs"    -> NurbsLoftCave (lofted irregular tube, sampled + displaced).
     # "points" -> PointCloudCave: beads sourced directly from the points on the
     #             Pearlscape::CavePoints layer (shell curtain_mode only).
-    cave_type: str = "points"
+    cave_type: str = "nurbs"
     # "rebuild" -> loft from the nurbs_* params each run (replaces the surface
     #              on the Pearlscape::CaveSurface layer).
     # "reuse"   -> sample the existing (possibly hand-edited) surface on that
@@ -129,6 +129,25 @@ class PearlscapeParams:
     # nudge in palette-step units: 0 = sharp, 1 = a one-step fuzzy band, >1 wider.
     color_dither: float = 1.0
 
+    # --- Sectioning (fabrication) ---
+    # A lattice of section_size cubes covering the curtain model, used to cut
+    # the model into fabricable chunks. Cube faces sit at multiples of
+    # section_size from the world origin; section_grid_shift (mm, per axis)
+    # slides the whole lattice — nudge it so each cube holds a single bead
+    # surface (top OR bottom wall) rather than both.
+    section_size: float = 1000.0
+    section_grid_shift: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+    # Review wall: copies of every occupied cube arranged beside the model
+    # (+Y), rows = original Z level. Pitch between copies and the gap between
+    # the model bbox and the wall, both in mm.
+    section_layout_spacing: float = 1200.0
+    section_layout_margin: float = 1000.0
+    # Which cube "export_section" writes PDFs for — a code from the section
+    # table printed by every sections run (e.g. "X0_Y1_Z2").
+    section_export_code: str = "X0_Y0_Z0"
+    # PLY path for pipeline_mode="export_sections_ply" (relative to repo root).
+    sections_ply_output_path: str = "web/data/pearlscape_sections.ply"
+
     # --- Pipeline / display / export ---
     # pipeline_mode controls how much of the pipeline runs:
     #   "cave"       -> raw cave point cloud only (fastest; tune geometry)
@@ -139,7 +158,15 @@ class PearlscapeParams:
     #                   any display_mode.
     #   "export_cave_ply" -> raw cave cloud + a single binary PLY of it (no
     #                   curtains); also renders to the viewport.
-    pipeline_mode: str = "curtains"
+    #   "sections"   -> curtains + the section cube grid (wireframes) + a
+    #                   labelled review wall of per-cube copies beside the
+    #                   model. No file I/O; tune the grid shift / seeds here.
+    #   "export_section" -> "sections" + per-curtain-plane layouts and PDFs
+    #                   for the ONE cube named by section_export_code.
+    #   "export_sections_ply" -> "sections" + a single binary PLY of the whole
+    #                   review wall (beads + cube edges + labels) for the web
+    #                   viewer.
+    pipeline_mode: str = "sections"
     display_mode: str = "sprites"   # "pointcloud" | "instances" | "sprites"
     instance_sphere_subd: int = 2
     pdf_page_size: str = "A1"
@@ -158,8 +185,17 @@ class PearlscapeParams:
         assert self.shell_curtain_spacing >= 0.0
         assert self.noise_type in ("fbm", "ridged")
         assert self.pipeline_mode in (
-            "cave", "curtains", "export", "export_ply", "export_cave_ply"
+            "cave", "curtains", "export", "export_ply", "export_cave_ply",
+            "sections", "export_section", "export_sections_ply",
         )
+        assert self.section_size > 0.0
+        assert len(self.section_grid_shift) == 3
+        assert self.section_layout_spacing >= self.section_size, (
+            f"section_layout_spacing ({self.section_layout_spacing}) must be >= "
+            f"section_size ({self.section_size}) or the review-wall copies overlap."
+        )
+        assert self.section_layout_margin >= 0.0
+        assert self.section_export_code
         assert self.display_mode in ("pointcloud", "instances", "sprites")
         assert not (self.display_mode == "sprites" and self.pipeline_mode == "export"), (
             "display_mode='sprites' is screen-only and cannot drive PDF export; "

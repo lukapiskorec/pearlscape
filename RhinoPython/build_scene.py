@@ -30,6 +30,11 @@ from pearlscape import display
 from pearlscape import export as export_mod
 from pearlscape import ply_export
 from pearlscape import palettes
+from pearlscape import sections as sections_mod
+
+
+# Modes that run the section grid on top of the curtain build.
+SECTION_MODES = ("sections", "export_section", "export_sections_ply")
 
 
 def _write_palettes_json(path: str, params) -> None:
@@ -93,7 +98,8 @@ def print_run_summary(beads: np.ndarray, params, n_curtains: int, bead_spacing: 
     """
     n = int(beads.shape[0])
     is_cave_run = params.pipeline_mode in ("cave", "export_cave_ply")
-    is_curtain_run = params.pipeline_mode in ("curtains", "export", "export_ply")
+    is_curtain_run = params.pipeline_mode in (
+        "curtains", "export", "export_ply") + SECTION_MODES
     # Cave runs AND shell-mode curtains both build the cloud from
     # cave.sample_surface_points(), so the surface-sampling params apply to both —
     # EXCEPT for the points cave, whose cloud is imported, not Poisson-sampled.
@@ -215,6 +221,22 @@ def print_run_summary(beads: np.ndarray, params, n_curtains: int, bead_spacing: 
         print("ply export:")
         print(f"  ply_output_path = {params.ply_output_path}")
 
+    # --- sectioning ---
+    if params.pipeline_mode in SECTION_MODES:
+        print("")
+        print("sections (mm):")
+        print(f"  section_size = {params.section_size:g}")
+        print(f"  section_grid_shift = {params.section_grid_shift}")
+        print(f"  layout spacing / margin = {params.section_layout_spacing:g} "
+              f"/ {params.section_layout_margin:g}")
+        if params.pipeline_mode == "export_section":
+            print(f"  section_export_code = {params.section_export_code}")
+            print(f"  pdf_page_size = {params.pdf_page_size}")
+            print(f"  pdf_output_dir = {params.pdf_output_dir}/sections/"
+                  f"{params.section_export_code}")
+        elif params.pipeline_mode == "export_sections_ply":
+            print(f"  sections_ply_output_path = {params.sections_ply_output_path}")
+
 
 def main() -> None:
     params = PearlscapeParams()
@@ -295,6 +317,17 @@ def main() -> None:
         raise ValueError(f"Unknown display_mode: {params.display_mode!r}")
     print(f"Rendered ({params.display_mode}). Look at the viewport.")
 
+    # Combined bead positions/colours across all curtains, used for the summary,
+    # the section grid bbox, and (in export_ply mode) the PLY file.
+    if total:
+        populated = [c for c in curtains if len(c["points_2d"])]
+        beads = np.vstack([display._projected_points(c) for c in populated])
+        have_colors = all(c.get("colors") is not None for c in populated)
+        bead_colors = np.vstack([c["colors"] for c in populated]) if have_colors else None
+    else:
+        beads = np.zeros((0, 3))
+        bead_colors = None
+
     if params.pipeline_mode == "export":
         # Mode 3 — full export: per-curtain layouts + PDFs.
         out_dir = os.path.join(_HERE, params.pdf_output_dir)
@@ -308,16 +341,72 @@ def main() -> None:
         pdf_paths = export_mod.export_all_pdfs(out_dir)
         print(f"Exported {len(pdf_paths)} PDFs to {out_dir} in {time.time()-t0:.2f}s")
 
-    # Combined bead positions/colours across all curtains, used for the summary
-    # and (in export_ply mode) the PLY file.
-    if total:
-        populated = [c for c in curtains if len(c["points_2d"])]
-        beads = np.vstack([display._projected_points(c) for c in populated])
-        have_colors = all(c.get("colors") is not None for c in populated)
-        bead_colors = np.vstack([c["colors"] for c in populated]) if have_colors else None
-    else:
-        beads = np.zeros((0, 3))
-        bead_colors = None
+    if params.pipeline_mode in SECTION_MODES:
+        if not total:
+            raise RuntimeError("Sections: no beads were generated; nothing to section.")
+        display.clear_sections_layers()
+
+        bbox_min = beads.min(axis=0)
+        bbox_max = beads.max(axis=0)
+        grid = sections_mod.grid_from_bbox(
+            bbox_min, bbox_max, params.section_size, params.section_grid_shift)
+        nx, ny, nz = grid["counts"]
+        ox, oy, oz = grid["origin"]
+        print(f"Section grid: {nx} x {ny} x {nz} cubes of {params.section_size:g} mm, "
+              f"origin ({ox:.0f}, {oy:.0f}, {oz:.0f})")
+
+        secs = sections_mod.assign_sections(curtains, grid)
+        print(f"Sections: {len(secs)} occupied cubes")
+        for s in secs:
+            print(f"  {s['code']}: {s['n_beads']:,} beads "
+                  f"across {len(s['curtains'])} planes")
+
+        layout = sections_mod.layout_positions(secs, bbox_min, bbox_max, params)
+        display.render_section_grid(grid)
+        display.render_section_layout(secs, layout, params.section_size)
+
+        if params.display_mode == "sprites":
+            # The sprite conduit rendered above holds only the model's beads;
+            # rebuild it with the review-wall copies appended so the sections
+            # read as beads too (the wall PointClouds stay — they're the
+            # per-section document geometry).
+            wall_pts, wall_cols = sections_mod.layout_beads(secs, layout)
+            sprite_pts = np.vstack([beads, wall_pts])
+            sprite_cols = (np.vstack([bead_colors, wall_cols])
+                           if bead_colors is not None else None)
+            display.render_sprites(sprite_pts, sprite_cols, params.bead_diameter)
+
+        if params.pipeline_mode == "export_section":
+            by_code = {s["code"]: s for s in secs}
+            sel = by_code.get(params.section_export_code)
+            if sel is None:
+                raise ValueError(
+                    f"section_export_code {params.section_export_code!r} is not an "
+                    f"occupied cube; choose one of: {', '.join(by_code)}")
+            plane_layers = display.render_section_export_curtains(
+                sel, params.section_size)
+            t0 = time.time()
+            layout_names = export_mod.create_section_layouts(
+                sel["code"], plane_layers, sel["cube_min"], params.section_size,
+                page_size=params.pdf_page_size,
+            )
+            print(f"Created {len(layout_names)} section layouts in {time.time()-t0:.2f}s")
+            out_dir = os.path.join(_HERE, params.pdf_output_dir, "sections", sel["code"])
+            t0 = time.time()
+            pdf_paths = export_mod.export_all_pdfs(out_dir, prefix="Section_")
+            print(f"Exported {len(pdf_paths)} PDFs to {out_dir} in {time.time()-t0:.2f}s")
+
+        elif params.pipeline_mode == "export_sections_ply":
+            pts, cols = sections_mod.bake_layout_cloud(secs, layout, params)
+            repo_root = os.path.dirname(_HERE)
+            out_path = os.path.join(repo_root, params.sections_ply_output_path)
+            t0 = time.time()
+            # No field/dither: the cube edges + labels carry fixed colours, so
+            # palette re-quantization in the viewer is deliberately inert here.
+            ply_export.write_ply(out_path, pts, cols, params.bead_diameter)
+            size_mb = os.path.getsize(out_path) / (1024.0 * 1024.0)
+            print(f"Wrote {pts.shape[0]:,} points ({len(secs)} sections + boxes + "
+                  f"labels) to {out_path} ({size_mb:.1f} MB) in {time.time()-t0:.2f}s")
 
     if params.pipeline_mode == "export_ply":
         # Per-bead colour field + dither source, so the web viewer can re-quantize

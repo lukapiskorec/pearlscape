@@ -1,6 +1,7 @@
 {
   "default": "pearlscape_thin_shell_curtains.ply",
   "models": [
-    { "name": "Thin shell + dense curtains", "file": "pearlscape_thin_shell_curtains.ply" }
+    { "name": "Thin shell + dense curtains", "file": "pearlscape_thin_shell_curtains.ply" },
+    { "name": "Fabrication sections", "file": "pearlscape_sections.ply" }
   ]
 }

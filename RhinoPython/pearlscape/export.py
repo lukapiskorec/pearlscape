@@ -124,8 +124,99 @@ def create_curtain_layouts(
     return names
 
 
-def export_all_pdfs(output_dir: str, dpi: float = 300.0) -> List[str]:
-    """Export every Curtain_NN layout as its own PDF. Returns the list of output paths.
+def _isolate_pearlscape_layer(page: rd.RhinoPageView, keep_path: str) -> None:
+    """In this page's details, hide EVERY layer under Pearlscape except
+    `keep_path` (its ancestors stay visible so the kept leaf isn't masked by a
+    hidden parent). Used by the section layouts, where unrelated Pearlscape
+    geometry (grid cubes, review wall, model curtains) must never print."""
+    doc = sc.doc
+    keep = {keep_path}
+    parts = keep_path.split("::")
+    for n in range(1, len(parts)):
+        keep.add("::".join(parts[:n]))
+    details = page.GetDetailViews()
+    if not details:
+        return
+    for layer in doc.Layers:
+        if layer.IsDeleted:
+            continue
+        full = layer.FullPath
+        if not (full == "Pearlscape" or full.startswith("Pearlscape::")):
+            continue
+        visible = full in keep
+        for det in details:
+            layer.SetPerViewportVisible(det.Viewport.Id, visible)
+        doc.Layers.Modify(layer, layer.Index, True)
+
+
+def _add_section_detail(
+    page: rd.RhinoPageView,
+    cube_min,
+    section_size: float,
+    margin_mm: float = 20.0,
+) -> None:
+    """One orthographic detail looking along +X, framed to the section cube's
+    YZ square (NOT ZoomExtents) so every page of a section prints at the same
+    scale regardless of how its beads happen to spread."""
+    page_w = page.PageWidth
+    page_h = page.PageHeight
+    side = min(page_w, page_h) - 2 * margin_mm   # the framed region is square
+    cx = page_w / 2.0
+    cy = page_h / 2.0
+    corner_a = rg.Point2d(cx - side / 2.0, cy - side / 2.0)
+    corner_b = rg.Point2d(cx + side / 2.0, cy + side / 2.0)
+
+    detail = page.AddDetailView("Section", corner_a, corner_b,
+                                rd.DefinedViewportProjection.Right)
+    bbox = rg.BoundingBox(
+        rg.Point3d(float(cube_min[0]), float(cube_min[1]), float(cube_min[2])),
+        rg.Point3d(float(cube_min[0]) + section_size,
+                   float(cube_min[1]) + section_size,
+                   float(cube_min[2]) + section_size),
+    )
+    bbox.Inflate(0.02 * section_size)   # keep the frame rect off the detail edge
+    detail.Viewport.ZoomBoundingBox(bbox)
+    detail.DetailGeometry.IsProjectionLocked = True
+    detail.CommitChanges()
+
+
+def create_section_layouts(
+    code: str,
+    plane_layers: List[tuple],
+    cube_min,
+    section_size: float,
+    page_size: str = "A1",
+) -> List[str]:
+    """One layout per curtain plane of the selected section, named
+    Section_<code>_C<NNN> (NNN = the plane's index in the FULL model, so pages
+    trace back to the uncut curtains). `plane_layers` is the
+    [(plane_index, layer_path), ...] list from
+    display.render_section_export_curtains. Returns the layout names."""
+    if page_size not in PAGE_SIZES_MM:
+        raise ValueError(f"Unknown page_size {page_size!r}; "
+                         f"options: {sorted(PAGE_SIZES_MM)}")
+    page_w, page_h = PAGE_SIZES_MM[page_size]
+
+    # Idempotency, same Close() story as create_curtain_layouts.
+    for v in list(sc.doc.Views.GetPageViews()):
+        if v.PageName.startswith("Section_"):
+            v.Close()
+
+    names = []
+    for plane_index, layer_path in plane_layers:
+        name = f"Section_{code}_C{plane_index:03d}"
+        page = _make_layout(name, page_w, page_h)
+        _add_section_detail(page, cube_min, section_size)
+        _isolate_pearlscape_layer(page, layer_path)
+        names.append(name)
+    sc.doc.Views.Redraw()
+    return names
+
+
+def export_all_pdfs(output_dir: str, dpi: float = 300.0,
+                    prefix: str = "Curtain_") -> List[str]:
+    """Export every layout whose name starts with `prefix` as its own PDF.
+    Returns the list of output paths.
 
     Uses Rhino 8's ViewCaptureSettings to specify per-page size and DPI; the
     earlier `pdf.AddPage(view, w, h, dpi)` 4-arg overload was removed in
@@ -135,7 +226,7 @@ def export_all_pdfs(output_dir: str, dpi: float = 300.0) -> List[str]:
     out_paths: List[str] = []
     seen_names = set()
     for view in sc.doc.Views.GetPageViews():
-        if not view.PageName.startswith("Curtain_"):
+        if not view.PageName.startswith(prefix):
             continue
         if view.PageName in seen_names:
             continue

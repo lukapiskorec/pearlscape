@@ -25,6 +25,7 @@ CAVE_REFERENCE_LAYER = "CaveReference"
 CURTAIN_PLANES_LAYER = "CurtainPlanes"
 CAVE_SURFACE_LAYER = "CaveSurface"
 CAVE_POINTS_LAYER = "CavePoints"
+SECTIONS_LAYER = "Sections"
 
 
 def _ensure_layer(path: str, color: Optional[sd.Color] = None) -> int:
@@ -144,6 +145,135 @@ def render_curtain_planes(
         attrs.LayerIndex = layer_idx
         doc.Objects.AddPolyline(polyline, attrs)
     sc.doc.Views.Redraw()
+
+
+# --- Sectioning (fabrication) ------------------------------------------------
+# Everything sections-related lives under Pearlscape::Sections and is cleared
+# at the start of every sections run, so F5 reruns (e.g. after shifting the
+# grid) never stack stale geometry.
+
+
+def clear_sections_layers() -> None:
+    """Delete all objects AND layers under (and including) Pearlscape::Sections.
+
+    Section codes change when the grid shifts, so stale per-code sublayers must
+    go too — deleting the whole subtree is the only clean slate."""
+    doc = sc.doc
+    root = f"{PEARLSCAPE_PARENT_LAYER}::{SECTIONS_LAYER}"
+    doomed = [layer for layer in doc.Layers
+              if not layer.IsDeleted and (layer.FullPath == root or
+                                          layer.FullPath.startswith(root + "::"))]
+    for layer in doomed:
+        for obj in doc.Objects.FindByLayer(layer) or []:
+            doc.Objects.Delete(obj, True)
+    # Children before parents, or the parent delete fails on non-empty.
+    for layer in sorted(doomed, key=lambda l: l.FullPath.count("::"), reverse=True):
+        doc.Layers.Delete(layer.Index, True)
+
+
+def _add_box_wireframe(layer_idx: int, min_pt, size: float) -> None:
+    """12 cube edges as 2 rectangle polylines + 4 vertical lines (wireframe in
+    every display mode — an AddBox brep would shade over the beads)."""
+    doc = sc.doc
+    x0, y0, z0 = float(min_pt[0]), float(min_pt[1]), float(min_pt[2])
+    attrs = Rhino.DocObjects.ObjectAttributes()
+    attrs.LayerIndex = layer_idx
+    for z in (z0, z0 + size):
+        ring = [
+            rg.Point3d(x0, y0, z),
+            rg.Point3d(x0 + size, y0, z),
+            rg.Point3d(x0 + size, y0 + size, z),
+            rg.Point3d(x0, y0 + size, z),
+            rg.Point3d(x0, y0, z),
+        ]
+        doc.Objects.AddPolyline(rg.Polyline(ring), attrs)
+    for dx in (0.0, size):
+        for dy in (0.0, size):
+            doc.Objects.AddLine(
+                rg.Line(rg.Point3d(x0 + dx, y0 + dy, z0),
+                        rg.Point3d(x0 + dx, y0 + dy, z0 + size)),
+                attrs,
+            )
+
+
+def render_section_grid(grid: dict) -> None:
+    """Wireframe cube for every cell of the section lattice, overlaid on the
+    model (Pearlscape::Sections::Grid). `grid` is sections.grid_from_bbox()."""
+    layer_path = f"{PEARLSCAPE_PARENT_LAYER}::{SECTIONS_LAYER}::Grid"
+    layer_idx = _ensure_layer(layer_path, color=sd.Color.FromArgb(128, 128, 128))
+    size = grid["size"]
+    ox, oy, oz = grid["origin"]
+    nx, ny, nz = grid["counts"]
+    for i in range(nx):
+        for j in range(ny):
+            for k in range(nz):
+                _add_box_wireframe(
+                    layer_idx,
+                    (ox + i * size, oy + j * size, oz + k * size),
+                    size,
+                )
+    sc.doc.Views.Redraw()
+
+
+def render_section_layout(sections: Sequence[dict], layout: dict, size: float) -> None:
+    """The review wall: each occupied cube copied to its layout slot — beads as
+    a coloured PointCloud, the cube as a wireframe box, and the section code as
+    a TextDot below it. One layer per section: Pearlscape::Sections::Layout::<code>."""
+    doc = sc.doc
+    for s in sections:
+        code = s["code"]
+        tmin = layout[code]
+        shift = tmin - s["cube_min"]
+        layer_path = f"{PEARLSCAPE_PARENT_LAYER}::{SECTIONS_LAYER}::Layout::{code}"
+        layer_idx = _ensure_layer(layer_path)
+
+        plates = [p for p in s["curtains"] if p["points_3d"].shape[0]]
+        if plates:
+            pts = np.vstack([p["points_3d"] for p in plates]) + shift
+            have_colors = all(p["colors"] is not None for p in plates)
+            cols = np.vstack([p["colors"] for p in plates]) if have_colors else None
+            add_pointcloud(pts, layer_path, colors=cols)
+
+        _add_box_wireframe(layer_idx, tmin, size)
+
+        attrs = Rhino.DocObjects.ObjectAttributes()
+        attrs.LayerIndex = layer_idx
+        dot_pt = rg.Point3d(float(tmin[0]), float(tmin[1]) + size / 2.0,
+                            float(tmin[2]) - 0.06 * size)
+        doc.Objects.AddTextDot(code, dot_pt, attrs)
+    sc.doc.Views.Redraw()
+
+
+def render_section_export_curtains(section: dict, size: float):
+    """Document geometry for the PDF export of ONE section: each curtain plane
+    inside the cube gets its own layer (…::Export::C<global plane index>) with
+    that plane's beads plus the cube's YZ outline at the plane (so every PDF
+    page carries the section frame). Returns [(plane_index, layer_path), ...]
+    for the layout builder."""
+    doc = sc.doc
+    base = f"{PEARLSCAPE_PARENT_LAYER}::{SECTIONS_LAYER}::Export::{section['code']}"
+    cube_min = section["cube_min"]
+    y0, z0 = float(cube_min[1]), float(cube_min[2])
+    out = []
+    for p in section["curtains"]:
+        layer_path = f"{base}::C{p['plane_index']:03d}"
+        layer_idx = _ensure_layer(layer_path)
+        if p["points_3d"].shape[0]:
+            add_pointcloud(p["points_3d"], layer_path, colors=p["colors"])
+        px = p["plane_x"]
+        frame = [
+            rg.Point3d(px, y0, z0),
+            rg.Point3d(px, y0 + size, z0),
+            rg.Point3d(px, y0 + size, z0 + size),
+            rg.Point3d(px, y0, z0 + size),
+            rg.Point3d(px, y0, z0),
+        ]
+        attrs = Rhino.DocObjects.ObjectAttributes()
+        attrs.LayerIndex = layer_idx
+        doc.Objects.AddPolyline(rg.Polyline(frame), attrs)
+        out.append((p["plane_index"], layer_path))
+    sc.doc.Views.Redraw()
+    return out
 
 
 def render_cave_surface(surface: rg.Surface) -> None:
