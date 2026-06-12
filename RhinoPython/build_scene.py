@@ -23,7 +23,8 @@ import numpy as np
 from pearlscape import PearlscapeParams
 from pearlscape.cave import make_default_cave
 from pearlscape.curtains import (
-    build_curtains, build_shell_curtains, curtain_planes, _shell_spacing,
+    align_curtain_strings, build_curtains, build_shell_curtains, curtain_planes,
+    _shell_spacing, _string_overlap,
 )
 from pearlscape import color as color_mod
 from pearlscape import display
@@ -185,6 +186,9 @@ def print_run_summary(beads: np.ndarray, params, n_curtains: int, bead_spacing: 
             print(f"  bead_min_spacing = {bead_spacing:g}{solved}")
             if params.target_bead_count > 0:
                 print(f"  target_bead_count = {params.target_bead_count:,}")
+        if params.string_align:
+            auto = "  (auto = bead_diameter)" if params.string_align_overlap <= 0.0 else ""
+            print(f"  string_align overlap = {_string_overlap(params):g}{auto}")
         print("")
 
     # --- result ---
@@ -301,6 +305,14 @@ def main() -> None:
         curtains, bead_spacing = build_curtains(cave, plane_xs, params)
     total = sum(len(c["points_2d"]) for c in curtains)
     print(f"Curtains: {len(curtains)} planes, {total} beads in {time.time()-t0:.2f}s")
+
+    if params.string_align:
+        # Before colouring/sectioning, so everything downstream (sections,
+        # PDFs, PLYs) inherits the aligned positions.
+        t0 = time.time()
+        st = align_curtain_strings(curtains, params)
+        print(f"String align: {st['beads']:,} beads onto {st['strings']:,} strings "
+              f"(max shift {st['max_shift']:.1f} mm) in {time.time()-t0:.2f}s")
 
     t0 = time.time()
     color_mod.apply_to_curtains(curtains, params)

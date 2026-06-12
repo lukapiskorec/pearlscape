@@ -91,7 +91,16 @@ class PearlscapeParams:
     curtain_mode: str = "shell"
     # Thin-shell plane spacing (mm); used only when curtain_mode == "shell".
     # 0 = auto, resolved to 2 * bead_diameter at use.
-    shell_curtain_spacing: float = 0.0
+    shell_curtain_spacing: float = 10.0
+    # --- String alignment (fabrication) ---
+    # Physically the beads hang on vertical strings. When on, beads in each
+    # curtain whose Y positions overlap (closer than string_align_overlap) are
+    # pulled onto a shared string, resolving pairs left to right with a seeded
+    # coin deciding which side shifts. String positions stay random per
+    # curtain (no snap grid), so curtains never align in the view direction.
+    string_align: bool = True
+    # Y-overlap that forces a shared string (mm); 0 = auto -> bead_diameter.
+    string_align_overlap: float = 0.0
 
     # --- Beads ---
     total_surface_samples: int = 300_000
@@ -102,7 +111,7 @@ class PearlscapeParams:
     # clustering); the count follows from the spacing + cave area. Larger spacing
     # => looser, fewer beads. 0 disables it and uses total_surface_samples with
     # the faster jittered sampler (which permits clustering).
-    cave_bead_spacing: float = 12.0
+    cave_bead_spacing: float = 8.0
 
     # --- Curtain band (in-plane bead placement) ---
     # Beads are sampled directly in each curtain plane, outward from the cave's
@@ -196,6 +205,7 @@ class PearlscapeParams:
         )
         assert self.section_layout_margin >= 0.0
         assert self.section_export_code
+        assert self.string_align_overlap >= 0.0
         assert self.display_mode in ("pointcloud", "instances", "sprites")
         assert not (self.display_mode == "sprites" and self.pipeline_mode == "export"), (
             "display_mode='sprites' is screen-only and cannot drive PDF export; "

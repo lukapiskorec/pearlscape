@@ -160,6 +160,78 @@ def _greedy_overlap_filter(yz: np.ndarray, radius: float) -> np.ndarray:
     return keep
 
 
+def _string_overlap(params) -> float:
+    """Y-overlap (mm) that forces two beads onto a shared string:
+    params.string_align_overlap, or bead_diameter when that is 0 (auto)."""
+    if params.string_align_overlap > 0.0:
+        return float(params.string_align_overlap)
+    return float(params.bead_diameter)
+
+
+def _align_strings_y(y: np.ndarray, threshold: float, rng) -> np.ndarray:
+    """Pull vertically-overlapping beads onto shared strings; returns new Ys.
+
+    Sweep the beads left to right (sorted by Y), growing a "current string".
+    A bead closer than `threshold` to the string overlaps it: a coin decides
+    which side shifts — the bead joins the string at its Y, or the whole
+    string shifts out to the bead's Y (for a two-bead string that is exactly
+    "randomly shift the upper or the lower bead"). The string may only shift
+    while every bead on it stays within `threshold` of its original Y, so no
+    bead ever moves a full threshold; chains that would drag farther split
+    into separate strings instead. Final string positions are random (they
+    fall out of the bead layout + coin flips, not a snap grid), and distinct
+    strings always end >= `threshold` apart.
+    """
+    out = np.array(y, dtype=np.float64, copy=True)
+    if out.shape[0] == 0:
+        return out
+    order = np.argsort(out, kind="stable")
+    members = [order[0]]
+    s = float(out[order[0]])    # the string's current Y
+    m_min = s                   # leftmost ORIGINAL y on the string (drag limit)
+    for idx in order[1:]:
+        yi = float(out[idx])
+        if yi - s < threshold:
+            if yi - m_min < threshold and rng.random() < 0.5:
+                s = yi
+            members.append(idx)
+        else:
+            out[members] = s
+            members = [idx]
+            s = yi
+            m_min = yi
+    out[members] = s
+    return out
+
+
+def align_curtain_strings(curtains: Sequence[dict], params) -> dict:
+    """In-place per-curtain string alignment (see _align_strings_y): updates
+    points_2d AND points_3d so the curtain dicts stay consistent. Call AFTER
+    the curtains are built and BEFORE colouring/sectioning, so everything
+    downstream inherits the aligned positions.
+
+    Per-curtain seeds occupy [noise_seed + 5000, noise_seed + 5000 + n) —
+    distinct strings per curtain, clear of the +1000 curtain-sampler range.
+    Returns {'beads', 'strings', 'max_shift'} for the run log.
+    """
+    overlap = _string_overlap(params)
+    total = 0
+    n_strings = 0
+    max_shift = 0.0
+    for i, c in enumerate(curtains):
+        pts = c["points_2d"]
+        if pts.shape[0] == 0:
+            continue
+        rng = np.random.default_rng(params.noise_seed + 5000 + i)
+        y_new = _align_strings_y(pts[:, 0], overlap, rng)
+        max_shift = max(max_shift, float(np.abs(y_new - pts[:, 0]).max()))
+        n_strings += int(np.unique(y_new).size)
+        total += int(pts.shape[0])
+        pts[:, 0] = y_new
+        c["points_3d"][:, 1] = y_new
+    return {"beads": total, "strings": n_strings, "max_shift": max_shift}
+
+
 def build_curtains(cave, plane_xs: Sequence[float], params) -> Tuple[List[dict], float]:
     """For each curtain plane, sample beads in-plane outside the cave's cross-
     section boundary, fading outward.
@@ -319,9 +391,43 @@ if __name__ == "__main__":
     )
     assert no_clash, "two curtains produced identical bead patterns (seed not varying)"
 
+    # --- string alignment ---
+    rng_y = np.random.default_rng(0)
+    y_rand = rng_y.uniform(0.0, 500.0, size=400)
+    aligned = _align_strings_y(y_rand, 6.0, np.random.default_rng(1))
+    shifts = np.abs(aligned - y_rand)
+    assert shifts.max() < 6.0, shifts.max()       # every move stays under the overlap
+    uniq = np.unique(aligned)
+    assert uniq.size < y_rand.size                # merges happened
+    assert np.all(np.diff(uniq) >= 6.0 - 1e-9)    # strings >= overlap apart
+    # deterministic per seed, different across seeds (random strings, no grid)
+    assert np.array_equal(aligned, _align_strings_y(y_rand, 6.0, np.random.default_rng(1)))
+    assert not np.array_equal(aligned, _align_strings_y(y_rand, 6.0, np.random.default_rng(2)))
+
+    # align_curtain_strings: in-place, 2d/3d consistent, per-curtain randomness
+    sa = PearlscapeParams()
+    sa.target_bead_count = 0
+    sa.string_align = True
+    sa_curtains, _ = build_curtains(cave, xs, sa)
+    stats = align_curtain_strings(sa_curtains, sa)
+    assert stats["beads"] == sum(len(c["points_2d"]) for c in sa_curtains)
+    assert 0 < stats["strings"] < stats["beads"]
+    assert stats["max_shift"] < sa.bead_diameter
+    for c in sa_curtains:
+        if c["points_2d"].shape[0]:
+            assert np.array_equal(c["points_3d"][:, 1], c["points_2d"][:, 0])
+            ys = np.unique(c["points_2d"][:, 0])
+            assert np.all(np.diff(ys) >= sa.bead_diameter - 1e-9)
+    u0 = np.unique(sa_curtains[0]["points_2d"][:, 0])
+    u1 = np.unique(sa_curtains[1]["points_2d"][:, 0])
+    assert not np.array_equal(u0, u1), "two curtains share a string layout"
+    print(f"string align: {stats['beads']} beads -> {stats['strings']} strings, "
+          f"max shift {stats['max_shift']:.2f} mm")
+
     # curtain_planes: nurbs derives the count from the X extent; cylinder keeps
     # curtain_count; both drop planes outside the cave (extent here is [0, 2000]).
     geom = PearlscapeParams()
+    geom.curtain_mode = "band"   # shell default would tile at the thin-shell spacing
     geom.curtain_spacing = 50.0
     geom.cave_type = "nurbs"
     pn = curtain_planes(cave, geom)
