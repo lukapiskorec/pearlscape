@@ -180,7 +180,7 @@ class PearlscapeParams:
     #   "export_sections_ply" -> "sections" + a single binary PLY of the whole
     #                   review wall (beads + cube edges + labels) for the web
     #                   viewer.
-    pipeline_mode: str = "sections"
+    pipeline_mode: str = "export_section"
     display_mode: str = "sprites"   # "pointcloud" | "instances" | "sprites"
     instance_sphere_subd: int = 2
     pdf_page_size: str = "A1"

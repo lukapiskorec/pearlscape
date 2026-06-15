@@ -312,7 +312,8 @@ def main() -> None:
         t0 = time.time()
         st = align_curtain_strings(curtains, params)
         print(f"String align: {st['beads']:,} beads onto {st['strings']:,} strings "
-              f"(max shift {st['max_shift']:.1f} mm) in {time.time()-t0:.2f}s")
+              f"(max Y shift {st['max_shift']:.1f} mm, max Z shift {st['max_z_shift']:.1f} mm) "
+              f"in {time.time()-t0:.2f}s")
 
     t0 = time.time()
     color_mod.apply_to_curtains(curtains, params)

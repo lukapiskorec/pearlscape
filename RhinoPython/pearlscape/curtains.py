@@ -204,20 +204,70 @@ def _align_strings_y(y: np.ndarray, threshold: float, rng) -> np.ndarray:
     return out
 
 
+def _space_strings_z(y: np.ndarray, z: np.ndarray, diameter: float) -> np.ndarray:
+    """De-overlap beads vertically within each string; returns new Zs.
+
+    `_align_strings_y` collapses beads onto shared strings by equalising their
+    Y, which removes the horizontal gap that had been keeping some of them
+    apart — so two beads on one string can end up closer than a bead diameter
+    in Z (the PDFs showed these overlapping). For each string (the beads that
+    now share one aligned Y) this sweeps top to bottom and slides every bead
+    that overlaps the one above it down until they just touch (gap == diameter),
+    so no two beads on a string ever overlap. The topmost bead never moves, and
+    sliding down mirrors how beads rest on each other on a real hanging string.
+    There is no per-bead travel cap, so the gap clears completely; drift stays
+    small in practice because the cloud is pre-spaced >= a diameter in 2D, so
+    overlapping runs are short (measured worst-case drift ~1.6 diameters) — and
+    a bead sitting clear of the one above resets the sweep, so drift never
+    propagates past a non-overlapping gap.
+    """
+    out = np.array(z, dtype=np.float64, copy=True)
+    n = out.shape[0]
+    if n < 2:
+        return out
+    order = np.argsort(y, kind="stable")   # walk beads grouped by their string Y
+    ys = y[order]
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and ys[j + 1] == ys[i]:
+            j += 1
+        if j > i:
+            idxs = order[i:j + 1]
+            zi = out[idxs]                              # copy (fancy index)
+            top = np.argsort(zi, kind="stable")[::-1]   # high Z (top) -> low (bottom)
+            prev = zi[top[0]]                           # topmost bead stays put
+            for t in top[1:]:
+                ceil = prev - diameter                  # must sit >= diameter below prev
+                zt = zi[t]
+                placed = zt if zt <= ceil else ceil     # slide down to clear (no cap)
+                zi[t] = placed
+                prev = placed
+            out[idxs] = zi
+        i = j + 1
+    return out
+
+
 def align_curtain_strings(curtains: Sequence[dict], params) -> dict:
     """In-place per-curtain string alignment (see _align_strings_y): updates
     points_2d AND points_3d so the curtain dicts stay consistent. Call AFTER
     the curtains are built and BEFORE colouring/sectioning, so everything
     downstream inherits the aligned positions.
 
+    Two passes per curtain: align Y to pull overlapping beads onto shared
+    strings, then de-overlap Z within each string (see _space_strings_z) so
+    beads sharing a string never sit closer than a bead diameter vertically.
+
     Per-curtain seeds occupy [noise_seed + 5000, noise_seed + 5000 + n) —
     distinct strings per curtain, clear of the +1000 curtain-sampler range.
-    Returns {'beads', 'strings', 'max_shift'} for the run log.
+    Returns {'beads', 'strings', 'max_shift', 'max_z_shift'} for the run log.
     """
     overlap = _string_overlap(params)
+    diameter = float(params.bead_diameter)
     total = 0
     n_strings = 0
     max_shift = 0.0
+    max_z_shift = 0.0
     for i, c in enumerate(curtains):
         pts = c["points_2d"]
         if pts.shape[0] == 0:
@@ -225,11 +275,18 @@ def align_curtain_strings(curtains: Sequence[dict], params) -> dict:
         rng = np.random.default_rng(params.noise_seed + 5000 + i)
         y_new = _align_strings_y(pts[:, 0], overlap, rng)
         max_shift = max(max_shift, float(np.abs(y_new - pts[:, 0]).max()))
+        # De-overlap each string vertically using the physical bead size (not
+        # the Y merge `overlap`, which may be set wider than the beads).
+        z_new = _space_strings_z(y_new, pts[:, 1], diameter)
+        max_z_shift = max(max_z_shift, float(np.abs(z_new - pts[:, 1]).max()))
         n_strings += int(np.unique(y_new).size)
         total += int(pts.shape[0])
         pts[:, 0] = y_new
+        pts[:, 1] = z_new
         c["points_3d"][:, 1] = y_new
-    return {"beads": total, "strings": n_strings, "max_shift": max_shift}
+        c["points_3d"][:, 2] = z_new
+    return {"beads": total, "strings": n_strings,
+            "max_shift": max_shift, "max_z_shift": max_z_shift}
 
 
 def build_curtains(cave, plane_xs: Sequence[float], params) -> Tuple[List[dict], float]:
@@ -404,25 +461,76 @@ if __name__ == "__main__":
     assert np.array_equal(aligned, _align_strings_y(y_rand, 6.0, np.random.default_rng(1)))
     assert not np.array_equal(aligned, _align_strings_y(y_rand, 6.0, np.random.default_rng(2)))
 
-    # align_curtain_strings: in-place, 2d/3d consistent, per-curtain randomness
+    # --- vertical de-overlap within a string (_space_strings_z) ---
+    one = np.zeros(3)                                   # one string (shared Y)
+    # resolvable: lower bead slides down to clear, top bead never moves
+    z_out = _space_strings_z(one, np.array([0.0, 3.0, 20.0]), 6.0)
+    assert np.allclose(np.sort(z_out), [-3.0, 3.0, 20.0]), z_out
+    # coincident pair: separates by exactly one diameter
+    z2 = _space_strings_z(np.zeros(2), np.array([5.0, 5.0]), 6.0)
+    assert abs(abs(z2[0] - z2[1]) - 6.0) < 1e-9, z2
+    # already spaced: untouched
+    z3 = _space_strings_z(np.zeros(3), np.array([0.0, 6.0, 12.0]), 6.0)
+    assert np.allclose(z3, [0.0, 6.0, 12.0]), z3
+    # strings are independent: a second Y group does not affect the first
+    y2 = np.array([0.0, 0.0, 9.0, 9.0])
+    z4 = _space_strings_z(y2, np.array([0.0, 1.0, 100.0, 101.0]), 6.0)
+    assert abs(z4[1] - z4[0]) >= 6.0 - 1e-9 and abs(z4[3] - z4[2]) >= 6.0 - 1e-9, z4
+    # every string fully de-overlaps (no cap) and a clear gap resets drift
+    rng_z = np.random.default_rng(7)
+    z_rand = rng_z.uniform(0.0, 300.0, size=30)
+    zr = _space_strings_z(np.zeros(30), z_rand, 6.0)
+    assert (np.diff(np.sort(zr)) >= 6.0 - 1e-9).all()   # zero overlaps remain
+    assert zr.max() <= z_rand.max() + 1e-9              # only slides down, never up
+    # (near-total resolution on realistic, pre-spaced beads is checked below)
+
+    # align_curtain_strings on the production shell path: beads are pre-spaced
+    # >= a bead diameter in 2D (the greedy filter), so Y-merge + Z de-overlap
+    # leaves almost no residual. Band mode is NOT used here — its sampler permits
+    # 2D overlaps, so beads would be overlapping before alignment even runs.
     sa = PearlscapeParams()
-    sa.target_bead_count = 0
+    sa.curtain_mode = "shell"
+    sa.cave_type = "cylinder"
     sa.string_align = True
-    sa_curtains, _ = build_curtains(cave, xs, sa)
+    sa_cave = CylinderFBMCave(
+        radius=sa.cave_radius, length=2000.0, fbm_amplitude=900.0,
+        fbm_base_freq=0.00035, fbm_octaves=6, fbm_lacunarity=2.0, fbm_gain=0.55,
+        noise_seed=sa.noise_seed, target_samples=1000, center_z=1500.0,
+        noise_type="ridged", bead_spacing=sa.cave_bead_spacing)
+    sa_planes = curtain_planes(sa_cave, sa)
+    sa_curtains, _ = build_shell_curtains(sa_cave, sa_planes, sa)
     stats = align_curtain_strings(sa_curtains, sa)
     assert stats["beads"] == sum(len(c["points_2d"]) for c in sa_curtains)
     assert 0 < stats["strings"] < stats["beads"]
     assert stats["max_shift"] < sa.bead_diameter
+    assert stats["max_z_shift"] >= 0.0
+    sa_pairs = sa_overlap = 0
     for c in sa_curtains:
         if c["points_2d"].shape[0]:
             assert np.array_equal(c["points_3d"][:, 1], c["points_2d"][:, 0])
+            assert np.array_equal(c["points_3d"][:, 2], c["points_2d"][:, 1])
             ys = np.unique(c["points_2d"][:, 0])
             assert np.all(np.diff(ys) >= sa.bead_diameter - 1e-9)
+            # vertical de-overlap: every bead on a string is >= a diameter apart
+            order = np.argsort(c["points_2d"][:, 0], kind="stable")
+            ys_s = c["points_2d"][order, 0]; zs_s = c["points_2d"][order, 1]
+            i = 0; n = ys_s.shape[0]
+            while i < n:
+                j = i
+                while j + 1 < n and ys_s[j + 1] == ys_s[i]:
+                    j += 1
+                if j > i:
+                    g = np.diff(np.sort(zs_s[i:j + 1]))
+                    sa_pairs += g.size
+                    sa_overlap += int((g < sa.bead_diameter - 1e-9).sum())
+                i = j + 1
+    assert sa_pairs > 0 and sa_overlap == 0, (sa_overlap, sa_pairs)   # zero overlaps
     u0 = np.unique(sa_curtains[0]["points_2d"][:, 0])
     u1 = np.unique(sa_curtains[1]["points_2d"][:, 0])
     assert not np.array_equal(u0, u1), "two curtains share a string layout"
     print(f"string align: {stats['beads']} beads -> {stats['strings']} strings, "
-          f"max shift {stats['max_shift']:.2f} mm")
+          f"max Y shift {stats['max_shift']:.2f} mm, max Z shift {stats['max_z_shift']:.2f} mm, "
+          f"{sa_overlap}/{sa_pairs} string pairs still overlapping")
 
     # curtain_planes: nurbs derives the count from the X extent; cylinder keeps
     # curtain_count; both drop planes outside the cave (extent here is [0, 2000]).
