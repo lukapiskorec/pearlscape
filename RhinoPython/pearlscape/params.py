@@ -128,9 +128,9 @@ class PearlscapeParams:
     target_bead_count: int = 500_000
 
     # --- Color ---
-    palette: List[RGB] = field(default_factory=lambda: list(palettes.OCEAN_BLUE))
-    color_base_freq: float = 0.0015   # cycles per mm
-    color_fbm_octaves: int = 2
+    palette: List[RGB] = field(default_factory=lambda: list(palettes.FERN_AND_ORCHID_V2))
+    color_base_freq: float = 0.0070   # cycles per mm
+    color_fbm_octaves: int = 6
     color_fbm_lacunarity: float = 2.0
     color_fbm_gain: float = 0.5
     color_noise_seed: int = 42
@@ -145,7 +145,7 @@ class PearlscapeParams:
     # slides the whole lattice — nudge it so each cube holds a single bead
     # surface (top OR bottom wall) rather than both.
     section_size: float = 1000.0
-    section_grid_shift: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+    section_grid_shift: Tuple[float, float, float] = (0.0, -300.0, 0.0)
     # Review wall: copies of every occupied cube arranged beside the model
     # (+Y), rows = original Z level. Pitch between copies and the gap between
     # the model bbox and the wall, both in mm.
@@ -153,7 +153,12 @@ class PearlscapeParams:
     section_layout_margin: float = 1000.0
     # Which cube "export_section" writes PDFs for — a code from the section
     # table printed by every sections run (e.g. "X0_Y1_Z2").
-    section_export_code: str = "X0_Y0_Z0"
+    section_export_code: str = "X2_Y1_Z1"
+    # Display ONLY this one cube (the section_export_code one) in the viewport,
+    # at its true model position — no whole-model beads, review wall or grid.
+    # Sprites aren't selectable once drawn, so this is the only way to view a
+    # single section alone. Affects display only, not the PDF/PLY output.
+    section_isolate: bool = True
     # PLY path for pipeline_mode="export_sections_ply" (relative to repo root).
     sections_ply_output_path: str = "web/data/pearlscape_sections.ply"
 

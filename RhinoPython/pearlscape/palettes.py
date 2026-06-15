@@ -57,6 +57,12 @@ FERN_AND_ORCHID: List[RGB] = [
     (126,  96, 150),
 ]
 
+# Green / purple.
+FERN_AND_ORCHID_V2: List[RGB] = [
+    (185, 245, 85),
+    (170, 55, 140),
+]
+
 # Seafoam green -> ocean blue (green / blue).
 LAGOON: List[RGB] = [
     (128, 196, 160),
@@ -92,6 +98,7 @@ ALL: Dict[str, List[RGB]] = {
     "moss_green": MOSS_GREEN,
     "orchid_sunset": ORCHID_SUNSET,
     "fern_and_orchid": FERN_AND_ORCHID,
+    "fern_and_orchid_v2": FERN_AND_ORCHID_V2,
     "lagoon": LAGOON,
     "aurora": AURORA,
     "wildflower": WILDFLOWER,

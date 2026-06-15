@@ -122,6 +122,44 @@ def layout_positions(sections: Sequence[dict], model_bbox_min: np.ndarray,
     return layout
 
 
+# --- per-sheet fabrication data (strings + colour tally, for the PDF export) -
+
+def string_columns(points_2d: np.ndarray, tol: float) -> np.ndarray:
+    """Representative Y of each vertical string in a curtain plane.
+
+    Beads physically hang on shared vertical strings (see params.string_align):
+    beads whose Y positions sit within `tol` of each other belong to one string.
+    Returns the sorted (1,) array of one Y per string (the cluster mean), so the
+    PDF export can draw a vertical line per string. Empty in -> empty out."""
+    if points_2d.shape[0] == 0:
+        return np.zeros((0,), dtype=np.float64)
+    ys = np.sort(points_2d[:, 0])
+    cols: List[float] = []
+    cluster = [float(ys[0])]
+    for y in ys[1:]:
+        if y - cluster[-1] <= tol:
+            cluster.append(float(y))
+        else:
+            cols.append(sum(cluster) / len(cluster))
+            cluster = [float(y)]
+    cols.append(sum(cluster) / len(cluster))
+    return np.array(cols, dtype=np.float64)
+
+
+def color_counts(colors) -> List[Tuple[Tuple[int, int, int], int]]:
+    """Bead tally per colour as [((r, g, b), count), ...], most-common first.
+
+    Bead colours are exact discrete palette entries, so unique RGB == palette
+    colour. Ties break by RGB so the order is deterministic. None/empty -> []."""
+    if colors is None or colors.shape[0] == 0:
+        return []
+    rgb = np.asarray(colors).reshape(-1, 3).astype(np.int64)
+    uniq, counts = np.unique(rgb, axis=0, return_counts=True)
+    order = sorted(range(uniq.shape[0]),
+                   key=lambda i: (-int(counts[i]), tuple(int(v) for v in uniq[i])))
+    return [(tuple(int(v) for v in uniq[i]), int(counts[i])) for i in order]
+
+
 # --- dot-matrix labels + cube edges (for the points-only PLY/web viewer) ----
 
 # 5x7 bitmap font, top row first. Covers the section-code alphabet only.
@@ -301,6 +339,21 @@ if __name__ == "__main__":
     assert np.allclose(lp["X1_Y0_Z0"],
                        [0.0, y_wall + params.section_layout_spacing, 0.0])
     assert np.allclose(lp["X1_Y0_Z1"], [0.0, y_wall, params.section_layout_spacing])
+
+    # string_columns: near-equal Y merge into one string; far ones stay split
+    cols = string_columns(np.array([[10.0, 0.0], [10.4, 5.0], [50.0, 1.0],
+                                     [10.2, 9.0], [49.6, 3.0]]), tol=1.0)
+    assert cols.shape == (2,), cols
+    assert np.isclose(cols[0], (10.0 + 10.4 + 10.2) / 3.0) and np.isclose(cols[1], 49.8)
+    assert string_columns(np.zeros((0, 2)), 1.0).shape == (0,)
+
+    # color_counts: tally by exact RGB, most-common first, deterministic ties
+    cc = color_counts(np.array([[1, 2, 3], [1, 2, 3], [9, 9, 9], [1, 2, 3], [4, 5, 6]],
+                               dtype=np.uint8))
+    assert cc[0] == ((1, 2, 3), 3), cc
+    assert {c for c, _ in cc} == {(1, 2, 3), (9, 9, 9), (4, 5, 6)}
+    assert sum(n for _, n in cc) == 5
+    assert color_counts(None) == [] and color_counts(np.zeros((0, 3))) == []
 
     # dot text: every section-code character renders; unknown chars skipped
     txt = dot_text_points("X12_Y0_Z9", 140.0)

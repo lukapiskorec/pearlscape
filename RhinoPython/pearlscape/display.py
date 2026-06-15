@@ -244,36 +244,14 @@ def render_section_layout(sections: Sequence[dict], layout: dict, size: float) -
     sc.doc.Views.Redraw()
 
 
-def render_section_export_curtains(section: dict, size: float):
-    """Document geometry for the PDF export of ONE section: each curtain plane
-    inside the cube gets its own layer (…::Export::C<global plane index>) with
-    that plane's beads plus the cube's YZ outline at the plane (so every PDF
-    page carries the section frame). Returns [(plane_index, layer_path), ...]
-    for the layout builder."""
+def _solid_hatch_index() -> int:
+    """Index of the document's 'Solid' hatch pattern, adding it if missing.
+    Used by the section PDF export (export.py) for the filled bead discs."""
     doc = sc.doc
-    base = f"{PEARLSCAPE_PARENT_LAYER}::{SECTIONS_LAYER}::Export::{section['code']}"
-    cube_min = section["cube_min"]
-    y0, z0 = float(cube_min[1]), float(cube_min[2])
-    out = []
-    for p in section["curtains"]:
-        layer_path = f"{base}::C{p['plane_index']:03d}"
-        layer_idx = _ensure_layer(layer_path)
-        if p["points_3d"].shape[0]:
-            add_pointcloud(p["points_3d"], layer_path, colors=p["colors"])
-        px = p["plane_x"]
-        frame = [
-            rg.Point3d(px, y0, z0),
-            rg.Point3d(px, y0 + size, z0),
-            rg.Point3d(px, y0 + size, z0 + size),
-            rg.Point3d(px, y0, z0 + size),
-            rg.Point3d(px, y0, z0),
-        ]
-        attrs = Rhino.DocObjects.ObjectAttributes()
-        attrs.LayerIndex = layer_idx
-        doc.Objects.AddPolyline(rg.Polyline(frame), attrs)
-        out.append((p["plane_index"], layer_path))
-    sc.doc.Views.Redraw()
-    return out
+    idx = doc.HatchPatterns.Find("Solid", True)
+    if idx < 0:
+        idx = doc.HatchPatterns.Add(Rhino.DocObjects.HatchPattern.Defaults.Solid)
+    return idx
 
 
 def render_cave_surface(surface: rg.Surface) -> None:

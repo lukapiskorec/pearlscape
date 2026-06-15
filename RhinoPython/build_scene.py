@@ -318,16 +318,22 @@ def main() -> None:
     color_mod.apply_to_curtains(curtains, params)
     print(f"Colors assigned in {time.time()-t0:.2f}s")
 
-    display.render_curtain_planes(plane_xs, params.curtain_width, params.curtain_height)
-    if params.display_mode == "pointcloud":
-        display.render_pointclouds(curtains)
-    elif params.display_mode == "instances":
-        display.render_instances(curtains, params.bead_diameter, params.instance_sphere_subd)
-    elif params.display_mode == "sprites":
-        display.render_sprites_curtains(curtains, params.bead_diameter)
-    else:
+    if params.display_mode not in ("pointcloud", "instances", "sprites"):
         raise ValueError(f"Unknown display_mode: {params.display_mode!r}")
-    print(f"Rendered ({params.display_mode}). Look at the viewport.")
+
+    # When isolating one section's display, skip the whole-model render here and
+    # draw only the selected cube once it has been computed in the sections block.
+    isolate_section = (params.section_isolate
+                       and params.pipeline_mode in SECTION_MODES)
+    if not isolate_section:
+        display.render_curtain_planes(plane_xs, params.curtain_width, params.curtain_height)
+        if params.display_mode == "pointcloud":
+            display.render_pointclouds(curtains)
+        elif params.display_mode == "instances":
+            display.render_instances(curtains, params.bead_diameter, params.instance_sphere_subd)
+        elif params.display_mode == "sprites":
+            display.render_sprites_curtains(curtains, params.bead_diameter)
+        print(f"Rendered ({params.display_mode}). Look at the viewport.")
 
     # Combined bead positions/colours across all curtains, used for the summary,
     # the section grid bbox, and (in export_ply mode) the PLY file.
@@ -374,19 +380,43 @@ def main() -> None:
                   f"across {len(s['curtains'])} planes")
 
         layout = sections_mod.layout_positions(secs, bbox_min, bbox_max, params)
-        display.render_section_grid(grid)
-        display.render_section_layout(secs, layout, params.section_size)
 
-        if params.display_mode == "sprites":
-            # The sprite conduit rendered above holds only the model's beads;
-            # rebuild it with the review-wall copies appended so the sections
-            # read as beads too (the wall PointClouds stay — they're the
-            # per-section document geometry).
-            wall_pts, wall_cols = sections_mod.layout_beads(secs, layout)
-            sprite_pts = np.vstack([beads, wall_pts])
-            sprite_cols = (np.vstack([bead_colors, wall_cols])
-                           if bead_colors is not None else None)
-            display.render_sprites(sprite_pts, sprite_cols, params.bead_diameter)
+        if isolate_section:
+            # Show only the cube named by section_export_code — its beads at
+            # their true model positions, no whole-model beads, wall or grid.
+            sel_iso = next((s for s in secs
+                            if s["code"] == params.section_export_code), None)
+            if sel_iso is None:
+                raise ValueError(
+                    f"section_isolate is on but section_export_code "
+                    f"{params.section_export_code!r} is not an occupied cube; "
+                    f"choose one of: {', '.join(s['code'] for s in secs)}")
+            plates = sel_iso["curtains"]
+            if params.display_mode == "pointcloud":
+                display.render_pointclouds(plates)
+            elif params.display_mode == "instances":
+                display.render_instances(plates, params.bead_diameter,
+                                         params.instance_sphere_subd)
+            else:  # sprites
+                iso_pts = np.vstack([p["points_3d"] for p in plates])
+                iso_cols = (np.vstack([p["colors"] for p in plates])
+                            if bead_colors is not None else None)
+                display.render_sprites(iso_pts, iso_cols, params.bead_diameter)
+            print(f"Section isolate: showing only {sel_iso['code']} "
+                  f"({sel_iso['n_beads']:,} beads).")
+        else:
+            display.render_section_grid(grid)
+            display.render_section_layout(secs, layout, params.section_size)
+            if params.display_mode == "sprites":
+                # The sprite conduit rendered above holds only the model's beads;
+                # rebuild it with the review-wall copies appended so the sections
+                # read as beads too (the wall PointClouds stay — they're the
+                # per-section document geometry).
+                wall_pts, wall_cols = sections_mod.layout_beads(secs, layout)
+                sprite_pts = np.vstack([beads, wall_pts])
+                sprite_cols = (np.vstack([bead_colors, wall_cols])
+                               if bead_colors is not None else None)
+                display.render_sprites(sprite_pts, sprite_cols, params.bead_diameter)
 
         if params.pipeline_mode == "export_section":
             by_code = {s["code"]: s for s in secs}
@@ -395,12 +425,9 @@ def main() -> None:
                 raise ValueError(
                     f"section_export_code {params.section_export_code!r} is not an "
                     f"occupied cube; choose one of: {', '.join(by_code)}")
-            plane_layers = display.render_section_export_curtains(
-                sel, params.section_size)
             t0 = time.time()
             layout_names = export_mod.create_section_layouts(
-                sel["code"], plane_layers, sel["cube_min"], params.section_size,
-                page_size=params.pdf_page_size,
+                sel, params.section_size, params,
             )
             print(f"Created {len(layout_names)} section layouts in {time.time()-t0:.2f}s")
             out_dir = os.path.join(_HERE, params.pdf_output_dir, "sections", sel["code"])
