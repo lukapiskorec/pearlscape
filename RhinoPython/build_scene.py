@@ -435,6 +435,18 @@ def main() -> None:
             t0 = time.time()
             pdf_paths = export_mod.export_all_pdfs(out_dir, prefix="Section_")
             print(f"Exported {len(pdf_paths)} PDFs to {out_dir} in {time.time()-t0:.2f}s")
+            t0 = time.time()
+            doc_path = os.path.join(out_dir, f"Section_{sel['code']}_strings.pdf")
+            export_mod.create_section_document(sel, params, doc_path)
+            print(f"Exported section document to {doc_path} in {time.time()-t0:.2f}s")
+
+            # Plain-text twin of the document (full, unwrapped lines) so the data
+            # can be reformatted in a text editor.
+            txt_path = os.path.join(out_dir, f"Section_{sel['code']}_strings.txt")
+            rows = sections_mod.section_document_rows(sel, params)
+            with open(txt_path, "w", encoding="utf-8") as fh:
+                fh.write("\n".join(sections_mod.section_document_text(rows)) + "\n")
+            print(f"Exported section text to {txt_path}")
 
         elif params.pipeline_mode == "export_sections_ply":
             pts, cols = sections_mod.bake_layout_cloud(secs, layout, params)

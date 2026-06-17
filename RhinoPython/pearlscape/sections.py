@@ -124,6 +124,32 @@ def layout_positions(sections: Sequence[dict], model_bbox_min: np.ndarray,
 
 # --- per-sheet fabrication data (strings + colour tally, for the PDF export) -
 
+def _cluster_strings(points_2d: np.ndarray, tol: float) -> List[List[int]]:
+    """Group bead ROW-INDICES into strings, ordered left -> right (ascending Y).
+
+    Beads are sorted by Y; a new string starts whenever the Y gap to the previous
+    bead exceeds `tol` (so a run of beads each within `tol` of the last forms one
+    string — the same rule the old string_columns used). Empty in -> []."""
+    n = points_2d.shape[0]
+    if n == 0:
+        return []
+    order = np.argsort(points_2d[:, 0], kind="stable")
+    ys = points_2d[order, 0]
+    clusters: List[List[int]] = []
+    cur = [int(order[0])]
+    prev_y = float(ys[0])
+    for t in range(1, n):
+        y = float(ys[t])
+        if y - prev_y <= tol:
+            cur.append(int(order[t]))
+        else:
+            clusters.append(cur)
+            cur = [int(order[t])]
+        prev_y = y
+    clusters.append(cur)
+    return clusters
+
+
 def string_columns(points_2d: np.ndarray, tol: float) -> np.ndarray:
     """Representative Y of each vertical string in a curtain plane.
 
@@ -131,19 +157,164 @@ def string_columns(points_2d: np.ndarray, tol: float) -> np.ndarray:
     beads whose Y positions sit within `tol` of each other belong to one string.
     Returns the sorted (1,) array of one Y per string (the cluster mean), so the
     PDF export can draw a vertical line per string. Empty in -> empty out."""
-    if points_2d.shape[0] == 0:
+    clusters = _cluster_strings(points_2d, tol)
+    if not clusters:
         return np.zeros((0,), dtype=np.float64)
-    ys = np.sort(points_2d[:, 0])
-    cols: List[float] = []
-    cluster = [float(ys[0])]
-    for y in ys[1:]:
-        if y - cluster[-1] <= tol:
-            cluster.append(float(y))
-        else:
-            cols.append(sum(cluster) / len(cluster))
-            cluster = [float(y)]
-    cols.append(sum(cluster) / len(cluster))
-    return np.array(cols, dtype=np.float64)
+    means = [float(np.mean(points_2d[idxs, 0])) for idxs in clusters]
+    return np.array(means, dtype=np.float64)
+
+
+def string_layout(points_2d: np.ndarray, colors, cube_min, section_size: float,
+                  tol: float, letters: Dict[Tuple[int, int, int], str]) -> List[dict]:
+    """Per-string fabrication data for ONE curtain plane within a section cube.
+
+    Returns a list ordered left -> right (one dict per string):
+        {'number': int,        # 1-based, resets per call (i.e. per curtain)
+         'offset_mm': int,      # round(mean_Y - cube_min_y), from the left edge
+         'beads': [(letter, pos_mm), ...]}   # top -> bottom
+
+    pos_mm = round((cube_min_z + section_size) - Z), i.e. distance DOWN from the
+    cube's top edge. `letters` maps rgb -> placeholder letter (palette_letters);
+    a colour not in the map, or a colourless plane, yields '?'."""
+    y0 = float(cube_min[1])
+    z_top = float(cube_min[2]) + float(section_size)
+    clusters = _cluster_strings(points_2d, tol)
+    out: List[dict] = []
+    for number, idxs in enumerate(clusters, start=1):
+        mean_y = float(np.mean(points_2d[idxs, 0]))
+        zs = points_2d[idxs, 1]
+        order = np.argsort(zs, kind="stable")[::-1]    # top (high Z) -> bottom
+        beads: List[Tuple[str, int]] = []
+        for bi in order:
+            ridx = idxs[int(bi)]
+            if colors is not None:
+                rgb = (int(colors[ridx, 0]), int(colors[ridx, 1]), int(colors[ridx, 2]))
+                letter = letters.get(rgb, "?")
+            else:
+                letter = "?"
+            pos_mm = int(round(z_top - float(points_2d[ridx, 1])))
+            beads.append((letter, pos_mm))
+        out.append({"number": number,
+                    "offset_mm": int(round(mean_y - y0)),
+                    "beads": beads})
+    return out
+
+
+def curtain_summary(colors, letters: Dict[Tuple[int, int, int], str]) -> dict:
+    """Bead total + per-letter counts for ONE curtain plane, most-common first.
+
+    Returns {'n_beads': int, 'by_letter': [(letter, count), ...]}. Built on
+    color_counts, so ordering/tie-breaks match the title-strip legend. A
+    colourless plane -> {'n_beads': 0, 'by_letter': []}."""
+    cc = color_counts(colors)        # [((r, g, b), count), ...] most-common first
+    by_letter = [(letters.get(rgb, "?"), int(count)) for rgb, count in cc]
+    return {"n_beads": int(sum(count for _, count in cc)), "by_letter": by_letter}
+
+
+def wrap_text(text: str, max_chars: int) -> List[str]:
+    """Word-wrap `text` to lines of at most `max_chars` characters, breaking at
+    spaces. A single word longer than `max_chars` is hard-split so nothing is
+    ever lost. Empty text -> ['']. Used by the PDF document so long string lines
+    wrap instead of running off the page."""
+    if max_chars < 1:
+        max_chars = 1
+    lines: List[str] = []
+    cur = ""
+    for w in text.split(" "):
+        cand = w if not cur else cur + " " + w
+        if len(cand) <= max_chars:
+            cur = cand
+            continue
+        if cur:
+            lines.append(cur)
+            cur = ""
+        while len(w) > max_chars:
+            lines.append(w[:max_chars])
+            w = w[max_chars:]
+        cur = w
+    if cur or not lines:
+        lines.append(cur)
+    return lines
+
+
+def section_document_rows(section, params) -> List[dict]:
+    """Logical rows for the section fabrication document, shared by the PDF and
+    the .txt export so the two never drift. Each row is
+        {'text': str, 'swatch': (r,g,b)|None, 'indent': int, 'checkbox': bool}
+    where `indent` is a hierarchy LEVEL (0 = flush, 1 = nested), not millimetres.
+    Legend rows carry a swatch colour; string rows carry an (empty) fabricator
+    checkbox. Pure data — no Rhino."""
+    from pearlscape import palettes
+    letters = palette_letters(params.palette)
+    section_size = float(params.section_size)
+    string_tol = (float(params.string_align_overlap)
+                  if params.string_align_overlap > 0.0 else float(params.bead_diameter))
+    rows: List[dict] = []
+
+    def add(text="", swatch=None, indent=0, checkbox=False):
+        rows.append({"text": text, "swatch": swatch, "indent": indent,
+                     "checkbox": checkbox})
+
+    add(f"Section {section['code']}")
+    add(f"Palette: {palettes.name_of(params.palette)}    "
+        f"{int(section.get('n_beads', 0))} beads total")
+    # Curtain count is beads-only — assign_sections never keeps an empty curtain.
+    # Spacing comes from the plane_index gap, so skipped (empty) curtains in the
+    # middle don't distort it.
+    beaded = section["curtains"]
+    if len(beaded) >= 2 and (beaded[-1]["plane_index"] - beaded[0]["plane_index"]):
+        dx = float(beaded[-1]["plane_x"] - beaded[0]["plane_x"])
+        di = int(beaded[-1]["plane_index"] - beaded[0]["plane_index"])
+        add(f"Curtains (with beads): {len(beaded)}    "
+            f"curtain spacing: {int(round(dx / di))}mm")
+    else:
+        add(f"Curtains (with beads): {len(beaded)}")
+    add()
+    add("Colour key (placeholder letters):")
+    for c in params.palette:
+        rgb = (int(c[0]), int(c[1]), int(c[2]))
+        add(f"{letters.get(rgb, '?')} = RGB({rgb[0]}, {rgb[1]}, {rgb[2]})",
+            swatch=rgb, indent=1)
+    add()
+    add("Bead layout: each bead's number is its offset in mm from the TOP of the section.")
+    add()
+
+    for plane in section["curtains"]:
+        colors = plane["colors"]
+        summ = curtain_summary(colors, letters)
+        tally = ", ".join(f"{ltr} {cnt}" for ltr, cnt in summ["by_letter"])
+        head = f"Curtain C{plane['plane_index']:03d} - {summ['n_beads']} beads"
+        if tally:
+            head += f": {tally}"
+        add(head)
+        layout = string_layout(plane["points_2d"], colors, section["cube_min"],
+                               section_size, string_tol, letters)
+        for s in layout:
+            n = len(s["beads"])
+            beads = ", ".join(f"{ltr}-{pos}mm" for ltr, pos in s["beads"])
+            noun = "bead" if n == 1 else "beads"
+            add(f"String {s['number']:03d} - {s['offset_mm']}mm - "
+                f"{n} {noun}, layout: {beads} ///",
+                indent=1, checkbox=True)
+        add()
+    return rows
+
+
+def section_document_text(rows) -> List[str]:
+    """Render section_document_rows as plain-text lines for the .txt export:
+    each `indent` level becomes a two-space step and string rows get a '[ ] '
+    checkbox. Lines are NOT wrapped (the text editor handles that). Blank rows
+    stay empty (no trailing spaces)."""
+    out: List[str] = []
+    for r in rows:
+        if not r["text"]:
+            out.append("")
+            continue
+        prefix = "  " * int(r["indent"])
+        if r["checkbox"]:
+            prefix += "[ ] "
+        out.append(prefix + r["text"])
+    return out
 
 
 def color_counts(colors) -> List[Tuple[Tuple[int, int, int], int]]:
@@ -158,6 +329,23 @@ def color_counts(colors) -> List[Tuple[Tuple[int, int, int], int]]:
     order = sorted(range(uniq.shape[0]),
                    key=lambda i: (-int(counts[i]), tuple(int(v) for v in uniq[i])))
     return [(tuple(int(v) for v in uniq[i]), int(counts[i])) for i in order]
+
+
+_PLACEHOLDER_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+
+def palette_letters(palette) -> Dict[Tuple[int, int, int], str]:
+    """Map each palette RGB to a placeholder letter by palette order:
+    palette[0] -> 'A', palette[1] -> 'B', ... The same colour gets the same
+    letter on every sheet and in every document. Palettes hold <= 6 colours, so
+    'Z' is never reached; a colour past the alphabet maps to '?'. Duplicate RGBs
+    keep their first (lowest-index) letter. Returns {(r, g, b): letter}."""
+    out: Dict[Tuple[int, int, int], str] = {}
+    for i, c in enumerate(palette):
+        rgb = (int(c[0]), int(c[1]), int(c[2]))
+        if rgb not in out:
+            out[rgb] = _PLACEHOLDER_LETTERS[i] if i < len(_PLACEHOLDER_LETTERS) else "?"
+    return out
 
 
 # --- dot-matrix labels + cube edges (for the points-only PLY/web viewer) ----
@@ -354,6 +542,81 @@ if __name__ == "__main__":
     assert {c for c, _ in cc} == {(1, 2, 3), (9, 9, 9), (4, 5, 6)}
     assert sum(n for _, n in cc) == 5
     assert color_counts(None) == [] and color_counts(np.zeros((0, 3))) == []
+
+    # palette_letters: letters by palette order, dupes keep first, lookups miss -> caller's default
+    pl = palette_letters([(10, 20, 30), (40, 50, 60), (70, 80, 90), (10, 20, 30)])
+    assert pl[(10, 20, 30)] == "A" and pl[(40, 50, 60)] == "B" and pl[(70, 80, 90)] == "C"
+    assert len(pl) == 3, pl                     # duplicate (10,20,30) not re-added
+    assert pl.get((1, 1, 1), "?") == "?"        # colour not in palette
+
+    # string_layout: two strings, numbered left->right, beads top->bottom, mm from top
+    sl_letters = palette_letters([(10, 20, 30), (40, 50, 60)])   # A, B
+    sl_pts = np.array([[100.0, 100.0],    # string 1 (Y~100): low bead
+                       [100.4, 800.0],    # string 1: high bead (top)
+                       [500.0, 400.0]])   # string 2 (Y~500)
+    sl_cols = np.array([[10, 20, 30],     # A
+                        [40, 50, 60],     # B
+                        [40, 50, 60]], dtype=np.uint8)   # B
+    sl = string_layout(sl_pts, sl_cols, cube_min=np.array([0.0, 0.0, 0.0]),
+                       section_size=1000.0, tol=1.0, letters=sl_letters)
+    assert [s["number"] for s in sl] == [1, 2], sl
+    assert sl[0]["offset_mm"] == 100 and sl[1]["offset_mm"] == 500, sl
+    # string 1 beads top->bottom: Z=800 (B, 1000-800=200mm) then Z=100 (A, 900mm)
+    assert sl[0]["beads"] == [("B", 200), ("A", 900)], sl[0]["beads"]
+    assert sl[1]["beads"] == [("B", 600)], sl[1]["beads"]
+    # colourless plane -> '?' letters, still positioned
+    sl_none = string_layout(sl_pts, None, np.array([0.0, 0.0, 0.0]), 1000.0, 1.0, sl_letters)
+    assert all(ltr == "?" for s in sl_none for ltr, _ in s["beads"]), sl_none
+    assert string_layout(np.zeros((0, 2)), None, np.zeros(3), 1000.0, 1.0, sl_letters) == []
+
+    # curtain_summary: total + per-letter, most-common first
+    cs_letters = palette_letters([(1, 2, 3), (4, 5, 6), (9, 9, 9)])   # A, B, C
+    cs = curtain_summary(np.array([[1, 2, 3], [1, 2, 3], [9, 9, 9], [1, 2, 3], [4, 5, 6]],
+                                  dtype=np.uint8), cs_letters)
+    assert cs["n_beads"] == 5, cs
+    assert cs["by_letter"][0] == ("A", 3), cs            # most common first
+    assert dict(cs["by_letter"]) == {"A": 3, "C": 1, "B": 1}, cs
+    assert curtain_summary(None, cs_letters) == {"n_beads": 0, "by_letter": []}
+
+    # wrap_text: word wrap at spaces, hard-split overlong words, empty -> ['']
+    assert wrap_text("a bb ccc", 5) == ["a bb", "ccc"], wrap_text("a bb ccc", 5)
+    assert wrap_text("short", 80) == ["short"]
+    assert wrap_text("", 10) == [""]
+    assert wrap_text("abcdefgh", 3) == ["abc", "def", "gh"]      # overlong single word
+    _long = "String 001 - offset 236mm - 2 beads, layout: A 100mm, B 200mm /"
+    _w = wrap_text(_long, 25)
+    assert all(len(_l) <= 25 for _l in _w), _w                   # every line fits
+    assert " ".join(_w).split() == _long.split()                # no words dropped/added
+
+    # section_document_rows + section_document_text: structure + txt formatting
+    sdr = section_document_rows(secs[0], params)
+    assert sdr[0]["text"].startswith("Section "), sdr[0]
+    assert any(r["swatch"] is not None for r in sdr), "no legend swatch rows"
+    assert any(r["checkbox"] for r in sdr), "no string rows carry a checkbox"
+    assert all(not r["checkbox"] for r in sdr
+               if r["text"].startswith(("Curtain ", "Section ", "Palette"))), sdr
+    sdt = section_document_text(sdr)
+    assert len(sdt) == len(sdr)                                   # one text line per row
+    assert any(l.startswith("  [ ] String ") for l in sdt), sdt  # checkbox + nested indent
+    assert "" in sdt                                             # blank separator rows survive
+
+    # string line format: no "offset", dashed bead codes, triple-slash end, singular noun
+    _str_lines = [l for l in sdt if "String " in l]
+    assert _str_lines and all(l.rstrip().endswith("///") for l in _str_lines), _str_lines
+    assert all("offset" not in l for l in _str_lines), _str_lines
+    assert all("-" in l.split("layout:")[1] for l in _str_lines), _str_lines  # dashed codes
+    assert any(" 1 bead," in l for l in _str_lines), _str_lines               # singular
+
+    # header: beads-only curtain count + inter-curtain spacing from plane_index gaps
+    _multi = {"code": "X0_Y0_Z0", "cube_min": np.array([0.0, 0.0, 0.0]), "n_beads": 3,
+              "curtains": [
+                  {"plane_index": 5, "plane_x": 50.0,
+                   "points_2d": np.array([[10.0, 10.0]]), "colors": None},
+                  {"plane_index": 8, "plane_x": 80.0,
+                   "points_2d": np.array([[10.0, 10.0], [20.0, 20.0]]), "colors": None}]}
+    _hrow = next(r["text"] for r in section_document_rows(_multi, params)
+                 if r["text"].startswith("Curtains"))
+    assert "2" in _hrow and "10mm" in _hrow, _hrow      # 2 curtains, (80-50)/(8-5)=10mm
 
     # dot text: every section-code character renders; unknown chars skipped
     txt = dot_text_points("X12_Y0_Z9", 140.0)
