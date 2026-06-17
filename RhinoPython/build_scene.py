@@ -268,6 +268,7 @@ def main() -> None:
             gain=params.color_fbm_gain,
             seed=params.color_noise_seed,
             dither=params.color_dither,
+            contrast=params.color_contrast,
         )
         print(f"Colors assigned in {time.time()-t0:.2f}s")
         if params.display_mode == "sprites":
@@ -285,6 +286,7 @@ def main() -> None:
                 octaves=params.color_fbm_octaves,
                 lacunarity=params.color_fbm_lacunarity,
                 gain=params.color_fbm_gain, seed=params.color_noise_seed,
+                contrast=params.color_contrast,
             )
             dither_rand = color_mod.dither_randoms(pts.shape[0], params.color_noise_seed)
             _export_ply_bundle(pts, colors, field, dither_rand, params)
@@ -471,6 +473,7 @@ def main() -> None:
                     octaves=params.color_fbm_octaves,
                     lacunarity=params.color_fbm_lacunarity,
                     gain=params.color_fbm_gain, seed=params.color_noise_seed,
+                    contrast=params.color_contrast,
                 ) for c in populated
             ])
             dither_rand = np.concatenate([

@@ -128,7 +128,7 @@ class PearlscapeParams:
     target_bead_count: int = 500_000
 
     # --- Color ---
-    palette: List[RGB] = field(default_factory=lambda: list(palettes.FERN_AND_ORCHID_V2))
+    palette: List[RGB] = field(default_factory=lambda: list(palettes.WILDFLOWER))
     color_base_freq: float = 0.0070   # cycles per mm
     color_fbm_octaves: int = 6
     color_fbm_lacunarity: float = 2.0
@@ -137,6 +137,12 @@ class PearlscapeParams:
     # Softens palette boundaries by stochastic dithering. Width of the per-bead
     # nudge in palette-step units: 0 = sharp, 1 = a one-step fuzzy band, >1 wider.
     color_dither: float = 1.0
+    # Stretches the colour field around its 0.5 midpoint before quantizing:
+    # n01' = 0.5 + (n01 - 0.5) * color_contrast. Multi-octave FBM clusters near
+    # 0.5 (spans only ~[0.25, 0.80]), so without this the palette's first and
+    # last colours never appear. 1.0 = off (raw FBM, middle colours only); ~2.5
+    # fills in the end colours while preserving the field's spatial structure.
+    color_contrast: float = 2.5
 
     # --- Sectioning (fabrication) ---
     # A lattice of section_size cubes covering the curtain model, used to cut
@@ -180,7 +186,7 @@ class PearlscapeParams:
     #   "export_sections_ply" -> "sections" + a single binary PLY of the whole
     #                   review wall (beads + cube edges + labels) for the web
     #                   viewer.
-    pipeline_mode: str = "export_section"
+    pipeline_mode: str = "sections"
     display_mode: str = "sprites"   # "pointcloud" | "instances" | "sprites"
     instance_sphere_subd: int = 2
     pdf_page_size: str = "A1"
@@ -227,6 +233,7 @@ class PearlscapeParams:
         assert 0.0 <= self.nurbs_radius_jitter < 1.0
         assert self.nurbs_grid_u >= 2 and self.nurbs_grid_v >= 3
         assert self.color_dither >= 0.0
+        assert self.color_contrast > 0.0
         assert self.curtain_band_thickness > 0.0
         assert self.curtain_band_fade >= 0.0
         assert self.bead_diameter > 0.0

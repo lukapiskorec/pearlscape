@@ -19,12 +19,22 @@ def color_field(
     lacunarity: float,
     gain: float,
     seed: int,
+    contrast: float = 1.0,
 ) -> np.ndarray:
     """Return the [0, 1) FBM colour-field value per point (pre-quantization).
 
     This is the palette-independent scalar the colour quantizer bins. Exporting
     it per bead lets a downstream viewer re-quantize against any palette without
     re-running the noise.
+
+    `contrast` stretches the field around its 0.5 midpoint before clamping:
+    n01' = 0.5 + (n01 - 0.5) * contrast. Multi-octave FBM bunches tightly around
+    0.5 (it spans only ~[0.25, 0.80] here), so the palette's first/last bins are
+    never reached and the end colours never appear. Widening the range with
+    contrast > 1 fills them in; the remap is monotonic, so spatial structure is
+    preserved. `contrast = 1.0` is the identity (raw FBM). Baking it here keeps
+    the exported field — which the web viewer re-quantizes — consistent with the
+    baked Rhino colours.
     """
     if points_3d.shape[0] == 0:
         return np.zeros((0,), dtype=np.float64)
@@ -33,7 +43,10 @@ def color_field(
         points_3d * base_freq, perm,
         octaves=octaves, lacunarity=lacunarity, gain=gain,
     )
-    # Clamp into [0, 1) defensively; FBM normalization is approximate.
+    if contrast != 1.0:
+        n01 = 0.5 + (n01 - 0.5) * contrast
+    # Clamp into [0, 1) defensively; FBM normalization is approximate (and the
+    # contrast stretch above pushes the tails past the ends on purpose).
     return np.clip(n01, 0.0, 0.999999)
 
 
@@ -71,6 +84,7 @@ def assign_colors(
     gain: float,
     seed: int,
     dither: float = 0.0,
+    contrast: float = 1.0,
 ) -> np.ndarray:
     """Return an (N, 3) uint8 RGB array for the given 3D points.
 
@@ -79,12 +93,15 @@ def assign_colors(
     quantizing, so beads within ~dither/2 of a boundary take either neighbouring
     colour with linearly-ramping probability. `dither=0` is hard quantization
     (unchanged output). The nudge is deterministic, seeded from `seed`.
+
+    `contrast` widens the FBM field range so the palette's end colours appear;
+    see `color_field`. `contrast=1.0` is the identity.
     """
     if points_3d.shape[0] == 0:
         return np.zeros((0, 3), dtype=np.uint8)
     n01 = color_field(
         points_3d, base_freq=base_freq, octaves=octaves,
-        lacunarity=lacunarity, gain=gain, seed=seed,
+        lacunarity=lacunarity, gain=gain, seed=seed, contrast=contrast,
     )
     dr = dither_randoms(n01.shape[0], seed) if dither > 0.0 else None
     return quantize(n01, dr, palette, dither)
@@ -102,6 +119,7 @@ def apply_to_curtains(curtains: List[dict], params) -> None:
             gain=params.color_fbm_gain,
             seed=params.color_noise_seed,
             dither=params.color_dither,
+            contrast=params.color_contrast,
         )
 
 

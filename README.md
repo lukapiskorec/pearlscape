@@ -123,6 +123,7 @@ Note: in `"curtains"`/`"export"` modes the bead count is **not** governed by `to
 | `color_fbm_gain`      | `0.5`     | Per-octave amplitude multiplier (same as geometry).                      |
 | `color_noise_seed`    | `42`      | Independent of `noise_seed`; change for a different colour distribution. |
 | `color_dither`        | `1.0`     | Fuzziness of palette boundaries, in palette-step units. `0` = razor-sharp regions; `1` = a one-step dithered band where neighbouring colours mix; `>1` softer/wider. Stochastic per bead, deterministic per run. |
+| `color_contrast`      | `2.5`     | Stretches the colour field around its 0.5 midpoint (`n01' = 0.5 + (n01 - 0.5) * contrast`) before quantizing. Multi-octave FBM bunches near 0.5, so the palette's first and last colours never get reached; `1.0` = off (raw FBM, middle colours only), `~2.5` widens the range to bring the end colours in while keeping the field's spatial structure. |
 
 The colour noise is sampled at each bead's *original 3D position* (not its projected curtain position), so colour blobs stay spatially coherent across neighbouring curtains.
 
